@@ -1,0 +1,150 @@
+import io
+import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+import numpy as np
+import pytest
+import trimesh
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from server.app import create_app
+
+FIXTURE = Path(__file__).parents[2] / "engine" / "tests" / "fixtures" / "chair.glb"
+
+
+class FakeModel:
+    def __init__(self, ok=True, flat=False):
+        self.ok, self.flat = ok, flat
+
+    def available(self):
+        return (True, "") if self.ok else (False, "TripoSR is not installed.")
+
+    def image_to_mesh(self, img):
+        if self.flat:
+            return trimesh.creation.box(extents=[1, 1, 0.01])
+        return trimesh.creation.icosphere(subdivisions=2)
+
+
+def client(tmp_path, **kw):
+    return TestClient(create_app(tmp_path, model_factory=lambda: FakeModel(**kw)))
+
+
+def photo(size=512, noise=True):
+    rng = np.random.default_rng(0)
+    a = rng.integers(0, 255, (size, size, 3), dtype=np.uint8) if noise else np.full((size, size, 3), 128, np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(a).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def wait_done(c, mesh_id):
+    for _ in range(100):
+        s = c.get(f"/api/meshes/{mesh_id}").json()
+        if s["status"] in ("done", "error"):
+            return s
+        time.sleep(0.05)
+    raise AssertionError("timeout")
+
+
+def test_glb_upload_build_and_exports(tmp_path):
+    c = client(tmp_path)
+    r = c.post("/api/meshes", files={"file": ("chair.glb", FIXTURE.read_bytes())})
+    assert r.status_code == 200, r.text
+    mesh_id = r.json()["mesh_id"]
+    assert r.json()["status"] == "done"
+
+    r = c.post("/api/builds", json={"mesh_id": mesh_id, "size_studs": 12})
+    assert r.status_code == 200, r.text
+    b = r.json()
+    assert b["stats"]["brick_count"] > 0 and b["dims"]["x"] <= 12
+
+    ldr = c.get(f"/api/builds/{b['id']}/export/ldraw")
+    assert ldr.status_code == 200 and ldr.text.count("\n1 ") == len(b["bricks"])
+    xml = c.get(f"/api/builds/{b['id']}/export/bricklink")
+    assert ET.fromstring(xml.text).tag == "INVENTORY"
+    csv = c.get(f"/api/builds/{b['id']}/export/csv")
+    assert csv.text.startswith("part,")
+    assert "attachment" in csv.headers["content-disposition"]
+
+    # Same file -> same id (cache hit). Fresh app -> export still works from disk cache.
+    again = c.post("/api/meshes", files={"file": ("chair.glb", FIXTURE.read_bytes())}).json()
+    assert again["mesh_id"] == mesh_id
+    c2 = client(tmp_path)
+    assert c2.get(f"/api/builds/{b['id']}/export/csv").status_code == 200
+
+
+def test_build_is_deterministic(tmp_path):
+    c = client(tmp_path)
+    mesh_id = c.post("/api/meshes", files={"file": ("chair.glb", FIXTURE.read_bytes())}).json()["mesh_id"]
+    a = c.post("/api/builds", json={"mesh_id": mesh_id, "size_studs": 10}).json()
+    c2 = client(tmp_path)
+    b = c2.post("/api/builds", json={"mesh_id": mesh_id, "size_studs": 10}).json()
+    assert a == b
+
+
+def test_photo_runs_through_model(tmp_path):
+    c = client(tmp_path)
+    r = c.post("/api/meshes", files={"file": ("p.png", photo())})
+    assert r.status_code == 200, r.text
+    s = wait_done(c, r.json()["mesh_id"])
+    assert s["status"] == "done"
+
+
+def test_flat_mesh_from_model_reports_error(tmp_path):
+    c = client(tmp_path, flat=True)
+    r = c.post("/api/meshes", files={"file": ("p.png", photo())})
+    s = wait_done(c, r.json()["mesh_id"])
+    assert s["status"] == "error" and "flat" in s["error"]
+
+
+@pytest.mark.parametrize("data,msg", [(photo(100), "too small"), (photo(noise=False), "blank")])
+def test_bad_photos_rejected(tmp_path, data, msg):
+    r = client(tmp_path).post("/api/meshes", files={"file": ("p.png", data)})
+    assert r.status_code == 422 and msg in r.json()["detail"]
+
+
+def test_blurry_photo_rejected(tmp_path):
+    x = np.linspace(0, 255, 512)
+    a = np.tile(x, (512, 1)).astype(np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(np.stack([a] * 3, -1)).save(buf, "PNG")
+    r = client(tmp_path).post("/api/meshes", files={"file": ("p.png", buf.getvalue())})
+    assert r.status_code == 422 and "blurry" in r.json()["detail"]
+
+
+def test_model_unavailable_still_accepts_glb(tmp_path):
+    c = client(tmp_path, ok=False)
+    r = c.post("/api/meshes", files={"file": ("p.png", photo())})
+    assert r.status_code == 503 and ".glb" in r.json()["detail"]
+    assert c.get("/api/health").json()["model_available"] is False
+    r = c.post("/api/meshes", files={"file": ("chair.glb", FIXTURE.read_bytes())})
+    assert r.status_code == 200
+
+
+def test_bad_requests(tmp_path):
+    c = client(tmp_path)
+    assert c.post("/api/meshes", files={"file": ("x.txt", b"hello")}).status_code == 422
+    assert c.post("/api/meshes", files={"file": ("x.glb", b"garbage")}).status_code == 422
+    assert c.post("/api/builds", json={"mesh_id": "0" * 64, "size_studs": 16}).status_code == 404
+    assert c.post("/api/builds", json={"mesh_id": "0" * 64, "size_studs": 99}).status_code == 422
+    assert c.get("/api/meshes/../../etc").status_code == 404
+    assert c.get("/api/builds/nope/export/csv").status_code == 404
+
+
+@pytest.mark.slow
+def test_real_triposr(tmp_path):
+    from server.model import TRIPOSR_DIR
+
+    c = TestClient(create_app(tmp_path))
+    if not c.get("/api/health").json()["model_available"]:
+        pytest.skip("TripoSR not installed")
+    data = (TRIPOSR_DIR / "examples" / "chair.png").read_bytes()
+    mesh_id = c.post("/api/meshes", files={"file": ("chair.png", data)}).json()["mesh_id"]
+    for _ in range(600):
+        s = c.get(f"/api/meshes/{mesh_id}").json()
+        if s["status"] in ("done", "error"):
+            break
+        time.sleep(1)
+    assert s["status"] == "done", s

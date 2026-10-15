@@ -20,3 +20,4 @@ dev = ["pytest>=8", "httpx>=0.27"]
 [tool.pytest.ini_options]
 testpaths = ["engine/tests", "server/tests"]
 markers = ["slow: runs TripoSR"]
+addopts = "-m \"not slow\""
