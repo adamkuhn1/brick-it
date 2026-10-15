@@ -1,0 +1,74 @@
+"""Stage 7: LDraw model, BrickLink Wanted List, parts CSV, rough cost."""
+
+from __future__ import annotations
+
+import csv
+import io
+from xml.sax.saxutils import escape
+
+from .colors import PALETTE
+from .types import Brick
+
+LDU_STUD = 20
+LDU_BRICK = 24
+
+PART_NAMES = {
+    "3005": "Brick 1 x 1", "3004": "Brick 1 x 2", "3622": "Brick 1 x 3", "3010": "Brick 1 x 4",
+    "3009": "Brick 1 x 6", "3008": "Brick 1 x 8", "3003": "Brick 2 x 2", "3002": "Brick 2 x 3",
+    "3001": "Brick 2 x 4", "2456": "Brick 2 x 6", "3007": "Brick 2 x 8",
+}
+
+# Rough average used-market prices (USD) per piece. Labelled as an estimate in the UI.
+PRICE_USD = {
+    "3005": 0.06, "3004": 0.07, "3622": 0.09, "3010": 0.10, "3009": 0.15, "3008": 0.20,
+    "3003": 0.09, "3002": 0.12, "3001": 0.14, "2456": 0.25, "3007": 0.30,
+}
+
+
+def estimate_cost(bricks: list[Brick]) -> float:
+    return round(sum(PRICE_USD[b.part] for b in bricks), 2)
+
+
+def to_ldraw(bricks: list[Brick], steps=None, name: str = "lego-build") -> str:
+    """LDraw .ldr. LDraw parts are long along X; -Y is up; origin at the top centre of a brick."""
+    lines = [f"0 {name}", f"0 Name: {name}.ldr", "0 Author: lego (photo-to-LEGO)", ""]
+    by_id = {b.id: b for b in bricks}
+    groups = [s.brick_ids for s in steps] if steps else [[b.id for b in bricks]]
+    for ids in groups:
+        for i in ids:
+            b = by_id[i]
+            cx = (b.x + b.size_x / 2) * LDU_STUD
+            cz = (b.y + b.size_y / 2) * LDU_STUD
+            top = -(b.layer + 1) * LDU_BRICK
+            m = "1 0 0 0 1 0 0 0 1" if b.rot == 90 or b.w == b.l else "0 0 1 0 1 0 -1 0 0"
+            lines.append(f"1 {PALETTE[b.color].ldraw} {_n(cx)} {_n(top)} {_n(cz)} {m} {b.part}.dat")
+        if steps:
+            lines.append("0 STEP")
+    return "\n".join(lines) + "\n"
+
+
+def _n(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() else f"{v:g}"
+
+
+def to_bricklink_xml(parts: list[dict]) -> str:
+    items = "".join(
+        "<ITEM><ITEMTYPE>P</ITEMTYPE>"
+        f"<ITEMID>{escape(p['part'])}</ITEMID><COLOR>{p['color_bricklink']}</COLOR>"
+        f"<MINQTY>{p['qty']}</MINQTY></ITEM>\n"
+        for p in parts
+    )
+    return f"<INVENTORY>\n{items}</INVENTORY>\n"
+
+
+def to_csv(parts: list[dict]) -> str:
+    by_bl = {c.bricklink: c for c in PALETTE}
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["part", "description", "color", "bricklink_color_id", "ldraw_color_id", "qty",
+                "est_unit_price_usd"])
+    for p in parts:
+        c = by_bl[p["color_bricklink"]]
+        w.writerow([p["part"], PART_NAMES[p["part"]], c.name, c.bricklink, c.ldraw, p["qty"],
+                    PRICE_USD[p["part"]]])
+    return buf.getvalue()
