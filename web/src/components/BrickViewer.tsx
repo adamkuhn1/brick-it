@@ -27,7 +27,7 @@ export default function BrickViewer({ build }: { build: Build }) {
     <Canvas
       shadows
       dpr={[1, 2]}
-      camera={{ position: [-span * 1.1, span * 1.0, span * 1.4], fov: 35, near: 0.1, far: span * 20 }}
+      camera={{ position: [-span * 1.5, span * 1.35, span * 1.9], fov: 35, near: 0.1, far: span * 20 }}
       aria-label="Rotatable 3D model of the build. Drag to rotate, scroll to zoom."
     >
       <hemisphereLight args={[0xffffff, 0xb9c6d2, 1.6]} />
