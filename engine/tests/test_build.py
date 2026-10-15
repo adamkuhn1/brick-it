@@ -25,18 +25,23 @@ def test_single_component(built):
     assert len(components(built.bricks, (*built.dims[:2], built.dims[2]))) == 1, built.warnings
 
 
-def test_every_step_buildable(built):
-    adj = adjacency(built.bricks, built.dims)
-    by_id = {b.id: b for b in built.bricks}
+def assert_steps_always_one_piece(build):
+    """After every step the model is one connected piece; each brick clips onto placed ones."""
+    adj = adjacency(build.bricks, build.dims)
     placed = set()
     seen = []
-    for s in built.steps:
+    for s in build.steps:
         assert 1 <= len(s.brick_ids) <= 10
         for i in s.brick_ids:
-            assert by_id[i].layer == 0 or any(n in placed for n in adj[i]), f"step {s.n} brick {i}"
-        placed.update(s.brick_ids)
+            if placed:
+                assert any(n in placed for n in adj[i]), f"step {s.n}: brick {i} is not attached"
+            placed.add(i)
         seen.extend(s.brick_ids)
-    assert sorted(seen) == [b.id for b in built.bricks]
+    assert sorted(seen) == [b.id for b in build.bricks]
+
+
+def test_every_step_attaches_to_the_model(built):
+    assert_steps_always_one_piece(built)
 
 
 def test_vocabulary(built):
@@ -86,3 +91,17 @@ def test_size_range_runs():
     for size in (8, 32):
         out = build(sphere(), size, up="z")
         assert out.dims[0] == size and out.steps
+
+
+def test_car_on_wheels_is_one_piece_at_every_step():
+    from engine.steps import foundation
+    from meshes import car
+    out = build(car(), 32, up="z")
+    assert len(components(out.bricks, out.dims)) == 1, out.warnings
+    # squared up to the grid: long axis along X, about car proportions
+    assert out.dims[0] == 32 and out.dims[1] < 0.6 * 32
+    layer, _ = foundation(out.bricks)
+    assert layer > 0  # starts on the chassis, not on four separate wheels
+    first = out.steps[0].brick_ids
+    assert all(b.layer >= layer for b in out.bricks if b.id in first)
+    assert_steps_always_one_piece(out)

@@ -41,3 +41,21 @@ def overhanging_t():
     bar = trimesh.creation.box(extents=[3, 0.5, 0.5])
     bar.apply_translation([0, 0, 2.25])
     return colored(trimesh.util.concatenate([stem, bar]), (20, 150, 60))
+
+
+def car(yaw_degrees=35):
+    """Low car body on four wheels, turned like a 3/4-view photo reconstruction (Z-up)."""
+    body = colored(trimesh.creation.box(extents=[4.2, 1.8, 0.7]), (110, 165, 205))
+    body.apply_translation([0, 0, 0.75])
+    cabin = colored(trimesh.creation.box(extents=[2.0, 1.5, 0.55]), (25, 30, 35))
+    cabin.apply_translation([-0.2, 0, 1.37])
+    parts = [body, cabin]
+    for x in (-1.4, 1.4):
+        for y in (-0.8, 0.8):
+            w = trimesh.creation.cylinder(radius=0.4, height=0.3, sections=24)
+            w.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
+            w.apply_translation([x, y, 0.4])
+            parts.append(colored(w, (190, 160, 90)))
+    m = trimesh.util.concatenate(parts)
+    m.apply_transform(trimesh.transformations.rotation_matrix(np.radians(yaw_degrees), [0, 0, 1]))
+    return m
