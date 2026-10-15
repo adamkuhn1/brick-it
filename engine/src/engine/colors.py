@@ -63,14 +63,57 @@ def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
     return np.stack([L, a, b], axis=-1)
 
 
+def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
+    """CIELAB (D65) [..., 3] -> sRGB uint8."""
+    L, a, b = lab[..., 0], lab[..., 1], lab[..., 2]
+    fy = (L + 16) / 116
+    fx, fz = fy + a / 500, fy - b / 200
+    d = 6 / 29
+    f = lambda t: np.where(t > d, t ** 3, 3 * d * d * (t - 4 / 29))  # noqa: E731
+    xyz = np.stack([f(fx) * 0.95047, f(fy), f(fz) * 1.08883], axis=-1)
+    m = np.array(
+        [[3.2404542, -1.5371385, -0.4985314],
+         [-0.9692660, 1.8760108, 0.0415560],
+         [0.0556434, -0.2040259, 1.0572252]]
+    )
+    c = np.clip(xyz @ m.T, 0, 1)
+    c = np.where(c > 0.0031308, 1.055 * c ** (1 / 2.4) - 0.055, 12.92 * c)
+    return (c * 255).round().astype(np.uint8)
+
+
 PALETTE_LAB = rgb_to_lab(np.array([_hex_to_rgb(c.hex) for c in PALETTE]))
 
+# Shading on a photo-derived mesh mostly changes lightness, not hue. Weighting L down keeps a
+# shadowed blue panel blue instead of flipping it to a darker palette colour.
+L_WEIGHT = 0.6
+MIN_COLOR_SHARE = 0.03  # colours on less of the surface than this fold into a common one
 
-def nearest_color(rgb) -> np.ndarray:
-    """Palette index of the closest color (ΔE76) for each RGB in [..., 3]."""
+
+def nearest_color(rgb, allowed: np.ndarray | None = None) -> np.ndarray:
+    """Palette index of the closest color (L-weighted ΔE) for each RGB in [..., 3]."""
     lab = rgb_to_lab(rgb)
-    d = ((lab[..., None, :] - PALETTE_LAB) ** 2).sum(axis=-1)
+    w = np.array([L_WEIGHT, 1.0, 1.0])
+    d = (((lab[..., None, :] - PALETTE_LAB) * w) ** 2).sum(axis=-1)
+    if allowed is not None:
+        d[..., ~allowed] = np.inf
     return d.argmin(axis=-1)
+
+
+def match_to_reference(rgb: np.ndarray, ref: np.ndarray) -> np.ndarray:
+    """Quantile-match RGB samples to the photo's foreground colours, per Lab channel.
+
+    Image-to-3D models return darker, flatter colours than the photo they came from.
+    Matching the distributions restores the photo's brightness and saturation without
+    needing to know which mesh point maps to which pixel.
+    """
+    if len(rgb) == 0 or len(ref) < 16:
+        return rgb
+    src, dst = rgb_to_lab(rgb), rgb_to_lab(ref)
+    q = np.linspace(0, 100, 101)
+    out = np.empty_like(src)
+    for ch in range(3):
+        out[:, ch] = np.interp(src[:, ch], np.percentile(src[:, ch], q), np.percentile(dst[:, ch], q))
+    return lab_to_rgb(out)
 
 
 def visible_mask(occ: np.ndarray) -> np.ndarray:
@@ -83,22 +126,27 @@ def visible_mask(occ: np.ndarray) -> np.ndarray:
     return occ & ~interior[1:-1, 1:-1, 1:-1]
 
 
-def smooth(grid: np.ndarray) -> np.ndarray:
-    """Recolor isolated single-voxel specks to the most common colour among their neighbours."""
+def smooth(grid: np.ndarray, passes: int = 2) -> np.ndarray:
+    """Majority filter over visible voxels: a voxel takes the most common colour among its
+    26 neighbours when its own colour is in a clear minority there (removes specks and
+    ragged one-voxel fringes, keeps real edges between colour regions)."""
     out = grid.copy()
-    X, Y, Z = grid.shape
-    for x, y, z in np.argwhere(grid >= 0):
-        c = grid[x, y, z]
-        neigh = grid[max(x - 1, 0):x + 2, max(y - 1, 0):y + 2, max(z - 1, 0):z + 2].ravel()
-        neigh = neigh[neigh >= 0]
-        counts = np.bincount(neigh, minlength=len(PALETTE))
-        counts[c] -= 1  # exclude self
-        if counts[c] == 0 and counts.sum() >= 3:
-            out[x, y, z] = counts.argmax()
+    for _ in range(passes):
+        src = out.copy()
+        for x, y, z in np.argwhere(src >= 0):
+            c = src[x, y, z]
+            neigh = src[max(x - 1, 0):x + 2, max(y - 1, 0):y + 2, max(z - 1, 0):z + 2].ravel()
+            neigh = neigh[neigh >= 0]
+            counts = np.bincount(neigh, minlength=len(PALETTE))
+            counts[c] -= 1  # exclude self
+            top = counts.argmax()
+            if top != c and counts[top] >= 3 and counts[c] * 2 < counts[top]:
+                out[x, y, z] = top
     return out
 
 
-def colorize(vox: Voxels) -> np.ndarray:
+def colorize(vox: Voxels, ref: np.ndarray | None = None) -> np.ndarray:
+    """`ref`: optional (N, 3) uint8 foreground pixels from the source photo."""
     grid = np.full(vox.occ.shape, EMPTY, dtype=np.int16)
     grid[vox.occ] = DONT_CARE
     visible = visible_mask(vox.occ)
@@ -113,5 +161,13 @@ def colorize(vox: Voxels) -> np.ndarray:
     # Visible voxels the surface sampling missed borrow the nearest sampled voxel's RGB.
     _, idx = ndimage.distance_transform_edt(~sampled, return_indices=True)
     src = tuple(i[visible] for i in idx)
-    grid[visible] = nearest_color(vox.rgb[src])
+    rgb = vox.rgb[src]
+    if ref is not None:
+        rgb = match_to_reference(rgb, ref)
+    first = nearest_color(rgb)
+    share = np.bincount(first, minlength=len(PALETTE)) / len(first)
+    allowed = share >= MIN_COLOR_SHARE
+    if not allowed.any():
+        allowed[share.argmax()] = True
+    grid[visible] = nearest_color(rgb, allowed)
     return smooth(grid)

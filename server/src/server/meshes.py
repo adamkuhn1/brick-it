@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import trimesh
 from PIL import Image, ImageOps
 
@@ -47,6 +48,23 @@ class MeshStore:
     def load(self, mesh_id: str) -> trimesh.Trimesh:
         return trimesh.load(self.path(mesh_id), force="mesh")
 
+    def ref_path(self, mesh_id: str) -> Path:
+        return self.dir / f"{mesh_id}.colors.npy"
+
+    def color_ref(self, mesh_id: str) -> np.ndarray | None:
+        p = self.ref_path(mesh_id)
+        return np.load(p) if p.exists() else None
+
+    def _save_ref(self, mesh_id: str, img: Image.Image) -> None:
+        if self.ref_path(mesh_id).exists():
+            return
+        try:
+            px = self.model_factory().foreground(img)
+        except Exception:
+            return  # colour matching is an improvement, never a blocker
+        if len(px) >= 16:
+            np.save(self.ref_path(mesh_id), px)
+
     # ----- submissions -----
 
     def submit(self, data: bytes, filename: str) -> str:
@@ -54,6 +72,11 @@ class MeshStore:
         mesh_id = hashlib.sha256(data).hexdigest()
         existing = self.status(mesh_id)
         if existing and existing.status != "error":
+            if ext not in MESH_EXTS and not self.ref_path(mesh_id).exists():
+                try:
+                    self._save_ref(mesh_id, self._open_image(data))
+                except InputRejected:
+                    pass
             return mesh_id
         if ext in MESH_EXTS:
             self._import_mesh(mesh_id, data, ext)
@@ -73,19 +96,24 @@ class MeshStore:
         with self.lock:
             self.jobs[mesh_id] = Job("done")
 
-    def _queue_image(self, mesh_id: str, data: bytes) -> None:
+    @staticmethod
+    def _open_image(data: bytes) -> Image.Image:
         try:
             img = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
             img.load()
+            return img
         except Exception as e:
             raise InputRejected("That file isn't an image we can read. Use a .jpg or .png.") from e
+
+    def _queue_image(self, mesh_id: str, data: bytes) -> None:
+        img = self._open_image(data)
         check_image(img)
         ok, why = self.model_factory().available()
         if not ok:
             raise ModelUnavailable(why + " You can still upload a .glb or .obj model.")
         with self.lock:
             self.jobs[mesh_id] = Job("queued")
-        self.pool.submit(self._run, mesh_id, img.convert("RGB"))
+        self.pool.submit(self._run, mesh_id, img)
 
     def _run(self, mesh_id: str, img: Image.Image) -> None:
         with self.lock:
@@ -93,6 +121,7 @@ class MeshStore:
         try:
             mesh = self.model_factory().image_to_mesh(img)
             check_mesh(mesh)
+            self._save_ref(mesh_id, img)
             mesh.export(self.path(mesh_id))
             job = Job("done")
         except InputRejected as e:

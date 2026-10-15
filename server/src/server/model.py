@@ -81,7 +81,19 @@ class TripoSR:
         model.to(self._device)
         model.eval()
         self._model = model
-        self._rembg = rembg.new_session("u2net")
+        if self._rembg is None:
+            self._rembg = rembg.new_session("u2net")
+
+    def foreground(self, image: Image.Image) -> np.ndarray:
+        session = None
+        if not has_alpha(image) and self.available()[0]:
+            with self._lock:
+                if self._rembg is None:
+                    import rembg
+
+                    self._rembg = rembg.new_session("u2net")
+                session = self._rembg
+        return foreground_pixels(image, session)
 
     def image_to_mesh(self, image: Image.Image):
         """Returns a Y-up trimesh with vertex colors."""
@@ -92,7 +104,9 @@ class TripoSR:
             self._load()
             from tsr.utils import remove_background, resize_foreground
 
-            img = remove_background(image.convert("RGB"), self._rembg)
+            # Keep the photo's own transparency if it has one; TripoSR then skips rembg.
+            src = image.convert("RGBA") if has_alpha(image) else image.convert("RGB")
+            img = remove_background(src, self._rembg)
             img = resize_foreground(img, 0.85)
             arr = np.asarray(img).astype(np.float32) / 255.0
             arr = arr[:, :, :3] * arr[:, :, 3:4] + (1 - arr[:, :, 3:4]) * 0.5
@@ -109,6 +123,35 @@ class TripoSR:
         # TripoSR output is Z-up; store everything Y-up (glTF convention).
         mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
         return mesh
+
+
+def has_alpha(image: Image.Image) -> bool:
+    if image.mode not in ("RGBA", "LA", "P", "PA"):
+        return False
+    alpha = np.asarray(image.convert("RGBA"))[..., 3]
+    return bool((alpha < 250).mean() > 0.01)
+
+
+def foreground_pixels(image: Image.Image, rembg_session=None, n: int = 4000) -> np.ndarray:
+    """Up to n RGB samples of the photo's subject, for colour matching. Uses the photo's own
+    alpha if present, else rembg; falls back to the centre of the frame."""
+    if has_alpha(image):
+        rgba = np.asarray(image.convert("RGBA"))
+    elif rembg_session is not None:
+        import rembg
+
+        small = image.convert("RGB")
+        small.thumbnail((512, 512))
+        rgba = np.asarray(rembg.remove(small, session=rembg_session))
+    else:
+        rgb = np.asarray(image.convert("RGB"))
+        h, w = rgb.shape[:2]
+        rgba = np.dstack([rgb, np.zeros((h, w), np.uint8)])
+        rgba[h // 4: 3 * h // 4, w // 4: 3 * w // 4, 3] = 255
+    px = rgba[rgba[..., 3] > 200][:, :3]
+    if len(px) > n:
+        px = px[np.random.default_rng(0).choice(len(px), n, replace=False)]
+    return px.astype(np.uint8)
 
 
 _instance: TripoSR | None = None

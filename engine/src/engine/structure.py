@@ -18,6 +18,7 @@ from .layout import PARTS, layout_layer
 from .types import DONT_CARE, EMPTY, PLATES_PER_BRICK, Brick
 
 MAX_ITER = 300
+MAX_DROP = 2
 
 
 # ---------- graph ----------
@@ -214,7 +215,7 @@ def _joint_rects(state: _State, a_cells, b_cells):
             nx, ny = x + dx, y + dy
             if (nx, ny, z) not in b_cells:
                 continue
-            for dz in (1, -1):
+            for dz in (0, 1, -1):  # 0: merge across the joint within the same course
                 zz = z + dz
                 if not 0 <= zz < Z:
                     continue
@@ -334,6 +335,16 @@ def repair(bricks: list[Brick], grid: np.ndarray) -> tuple[list[Brick], list[str
             continue
         if not _strengthen(state, shape, tried):
             break
+
+    # Leftover specks of 1-2 bricks that couldn't be joined are image-to-3D noise; a real set
+    # never ships a loose 1x1. Bigger leftovers stay and get a warning.
+    dropped = 0
+    comps = components(state.list(), shape)
+    for comp in comps[1:]:
+        if len(comp) <= MAX_DROP:
+            for i in comp:
+                del state.bricks[i]
+            dropped += len(comp)
 
     out = sorted(state.list(), key=lambda b: (b.layer, b.x, b.y))
     for i, b in enumerate(out):

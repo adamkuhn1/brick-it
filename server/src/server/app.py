@@ -58,7 +58,9 @@ def create_app(cache_dir: Path | None = None, model_factory=get_model) -> FastAP
         job = store.status(mesh_id)
         if job is None or job.status != "done":
             raise HTTPException(404, "Mesh not ready.")
-        b = engine.build(store.load(mesh_id), size, up="y", build_id=build_id)
+        b = engine.build(
+            store.load(mesh_id), size, up="y", build_id=build_id, color_ref=store.color_ref(mesh_id)
+        )
         with builds_lock:
             builds[build_id] = b
             while len(builds) > 32:

@@ -21,6 +21,10 @@ class FakeModel:
     def available(self):
         return (True, "") if self.ok else (False, "TripoSR is not installed.")
 
+    def foreground(self, img):
+        from server.model import foreground_pixels
+        return foreground_pixels(img)
+
     def image_to_mesh(self, img):
         if self.flat:
             return trimesh.creation.box(extents=[1, 1, 0.01])
@@ -148,3 +152,21 @@ def test_real_triposr(tmp_path):
             break
         time.sleep(1)
     assert s["status"] == "done", s
+
+
+def test_photo_colours_saved_for_matching(tmp_path):
+    c = client(tmp_path)
+    mesh_id = c.post("/api/meshes", files={"file": ("p.png", photo())}).json()["mesh_id"]
+    wait_done(c, mesh_id)
+    assert (tmp_path / "meshes" / f"{mesh_id}.colors.npy").exists()
+    assert c.post("/api/builds", json={"mesh_id": mesh_id, "size_studs": 8}).status_code == 200
+
+
+def test_transparent_png_keeps_its_alpha():
+    from server.model import foreground_pixels, has_alpha
+    a = np.zeros((300, 300, 4), np.uint8)
+    a[100:200, 100:200] = (90, 150, 200, 255)  # blue subject; transparent black elsewhere
+    img = Image.fromarray(a, "RGBA")
+    assert has_alpha(img)
+    px = foreground_pixels(img)
+    assert (px.mean(axis=0) > [80, 140, 190]).all()  # no black background leaking in

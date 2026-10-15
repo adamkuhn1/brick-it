@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
+import numpy as np
 import trimesh
 
 from .colors import colorize
@@ -17,10 +18,21 @@ from .voxelize import voxelize
 MAX_BRICKS_WARNING = 2000
 
 
-def build(mesh: trimesh.Trimesh, size_studs: int, up: str = "y", build_id: str | None = None) -> Build:
-    """Run the full pipeline. `up` is the mesh's up axis ("y" for glTF/TripoSR, "z" for CAD)."""
+def build(
+    mesh: trimesh.Trimesh,
+    size_studs: int,
+    up: str = "y",
+    build_id: str | None = None,
+    color_ref: np.ndarray | None = None,
+) -> Build:
+    """Run the full pipeline.
+
+    up: the mesh's up axis ("y" for glTF/TripoSR, "z" for CAD).
+    color_ref: optional (N, 3) uint8 foreground pixels of the source photo; mesh colours are
+        matched to them (image-to-3D models return darker colours than the photo).
+    """
     vox = voxelize(mesh, size_studs, up=up)
-    grid = hollow(colorize(vox), size_studs)
+    grid = hollow(colorize(vox, color_ref), size_studs)
     bricks, warnings = repair(layout(grid), grid)
     steps = plan_steps(bricks)
     if len(bricks) > MAX_BRICKS_WARNING:

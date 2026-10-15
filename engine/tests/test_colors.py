@@ -35,3 +35,33 @@ def test_colorize_red_cube_shell_red_interior_dont_care():
     assert all(name(c) == "Red" for c in np.unique(g[vis]))
     assert (g == DONT_CARE).any()
     assert not (g == EMPTY).all()
+
+
+def test_shadowed_blue_stays_blue():
+    # same paint, lit vs in shadow
+    lit, shade = nearest_color([90, 150, 200]), nearest_color([40, 75, 105])
+    assert "Blue" in name(lit) or "Azure" in name(lit)
+    assert "Blue" in name(shade) or "Azure" in name(shade)
+
+
+def test_match_to_reference_restores_brightness():
+    from engine.colors import match_to_reference, rgb_to_lab
+    rng = np.random.default_rng(0)
+    ref = np.clip(rng.normal([110, 160, 200], 15, (500, 3)), 0, 255).astype(np.uint8)
+    dark = (ref * 0.45).astype(np.uint8)
+    out = match_to_reference(dark, ref)
+    assert abs(rgb_to_lab(out)[:, 0].mean() - rgb_to_lab(ref)[:, 0].mean()) < 3
+
+
+def test_rare_colors_fold_into_common_ones():
+    import trimesh
+    from meshes import colored
+    m = trimesh.creation.box(extents=[1, 1, 1])
+    for _ in range(4):
+        m = m.subdivide()
+    m = colored(m, (200, 20, 20))
+    vc = m.visual.vertex_colors.copy()
+    vc[0, :3] = (20, 200, 20)  # one green vertex: a speck
+    m.visual.vertex_colors = vc
+    g = colorize(voxelize(m, 10, up="z"))
+    assert set(name(c) for c in np.unique(g[g >= 0])) == {"Red"}

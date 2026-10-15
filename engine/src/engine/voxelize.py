@@ -38,6 +38,38 @@ def _to_z_up(mesh: trimesh.Trimesh, up: str) -> trimesh.Trimesh:
     return mesh
 
 
+def _align_yaw(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Rotate about Z so the footprint's minimum-area rectangle lines up with the stud grid.
+
+    Image-to-3D models reconstruct the object in the camera's frame, so a car shot at a 3/4
+    angle comes out turned ~35 degrees. Laid on an axis-aligned grid, its straight sides turn
+    into staircases. Real LEGO models are built square to the object, so we square it up,
+    with the long side along X.
+    """
+    from scipy.spatial import ConvexHull, QhullError
+
+    pts = mesh.vertices[:, :2]
+    try:
+        hull = pts[ConvexHull(pts).vertices]
+    except QhullError:
+        return mesh
+    edges = np.diff(np.vstack([hull, hull[:1]]), axis=0)
+    angles = np.unique(np.mod(np.arctan2(edges[:, 1], edges[:, 0]), np.pi / 2))
+    best_area, best_angle = np.inf, 0.0
+    for a in angles:
+        c, s = np.cos(-a), np.sin(-a)
+        r = hull @ np.array([[c, -s], [s, c]]).T
+        area = np.prod(r.max(axis=0) - r.min(axis=0))
+        if area < best_area - 1e-12:
+            best_area, best_angle = area, a
+    mesh = mesh.copy()
+    mesh.apply_transform(trimesh.transformations.rotation_matrix(-best_angle, [0, 0, 1]))
+    ext = mesh.extents
+    if ext[1] > ext[0]:
+        mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0, 0, 1]))
+    return mesh
+
+
 def _vertex_colors(mesh: trimesh.Trimesh) -> tuple[np.ndarray | None, np.ndarray | None]:
     """Return (vertex_rgb, face_rgb); at most one is not None."""
     visual = mesh.visual
@@ -55,7 +87,9 @@ def _vertex_colors(mesh: trimesh.Trimesh) -> tuple[np.ndarray | None, np.ndarray
     return None, None
 
 
-def voxelize(mesh: trimesh.Trimesh, size_studs: int, up: str = "y", seed: int = 0) -> Voxels:
+def voxelize(
+    mesh: trimesh.Trimesh, size_studs: int, up: str = "y", seed: int = 0, align: bool = True
+) -> Voxels:
     if size_studs < 1:
         raise ValueError("size_studs must be >= 1")
     if len(mesh.faces) == 0:
@@ -63,6 +97,8 @@ def voxelize(mesh: trimesh.Trimesh, size_studs: int, up: str = "y", seed: int = 
 
     vcol, fcol = _vertex_colors(mesh)
     mesh = _to_z_up(mesh, up)
+    if align:
+        mesh = _align_yaw(mesh)
 
     lo, hi = mesh.bounds
     extent = hi - lo
@@ -97,6 +133,8 @@ def voxelize(mesh: trimesh.Trimesh, size_studs: int, up: str = "y", seed: int = 
 
     filled = ndimage.binary_fill_holes(occ)
     occ = filled if filled is not None else occ
+    occ = drop_floaters(occ)
+    surface &= occ
 
     # Colors
     has_color = vcol is not None or fcol is not None
@@ -121,6 +159,21 @@ def voxelize(mesh: trimesh.Trimesh, size_studs: int, up: str = "y", seed: int = 
         rgb.reshape(-1, 3)[hit] = avg
 
     return Voxels(occ=occ, rgb=rgb, surface=surface, has_color=has_color)
+
+
+FLOATER_SHARE = 0.03
+
+
+def drop_floaters(occ: np.ndarray) -> np.ndarray:
+    """Remove small voxel islands not touching the main body (image-to-3D noise: stray blobs
+    that would otherwise need support columns). Islands of at least FLOATER_SHARE of the
+    largest one are kept: they are real parts and the repair stage connects them."""
+    labels, n = ndimage.label(occ, structure=np.ones((3, 3, 3)))
+    if n <= 1:
+        return occ
+    sizes = np.bincount(labels.ravel())[1:]
+    keep = np.flatnonzero(sizes >= FLOATER_SHARE * sizes.max()) + 1
+    return np.isin(labels, keep)
 
 
 def _vertex_face(mesh: trimesh.Trimesh) -> np.ndarray:

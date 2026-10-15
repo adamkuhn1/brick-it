@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Build } from "../types";
-import { buildBrickScene, stepOrder, type BrickScene } from "./bricks";
+import { BRICK_H, brickCenter, buildBrickScene, stepOrder, type BrickScene } from "./bricks";
+import { sizeX, sizeY } from "../types";
 
 /** Renders instruction-booklet images: flat toon shading, black outlines, one fixed iso camera. */
 export interface BookletRenderer {
@@ -80,6 +81,26 @@ export function createBookletRenderer(build: Build, width = 900, height = 680): 
   scene.add(model.group);
   const camera = fitCamera(model.bounds, width / height);
 
+  // Like a real booklet, frame the part being built rather than the finished model, but
+  // never zoom past MIN_FRAME of the full model so the scale doesn't jump around.
+  const MIN_FRAME = 0.45;
+  const byId = new Map(build.bricks.map((b) => [b.id, b]));
+  const fullSize = model.bounds.getSize(new THREE.Vector3());
+  const stepCameras: THREE.OrthographicCamera[] = [];
+  const sofar = new THREE.Box3();
+  let k = 0;
+  for (const s of build.steps) {
+    for (; k < cumulative[s.n - 1]; k++) {
+      const b = byId.get(order[k])!;
+      const p = brickCenter(b, build.dims);
+      sofar.expandByPoint(new THREE.Vector3(p.x - sizeX(b) / 2, p.y - BRICK_H / 2, p.z - sizeY(b) / 2));
+      sofar.expandByPoint(new THREE.Vector3(p.x + sizeX(b) / 2, p.y + BRICK_H / 2 + 0.2, p.z + sizeY(b) / 2));
+    }
+    const size = sofar.getSize(new THREE.Vector3()).max(fullSize.clone().multiplyScalar(MIN_FRAME));
+    const frame = new THREE.Box3().setFromCenterAndSize(sofar.getCenter(new THREE.Vector3()), size);
+    stepCameras.push(fitCamera(frame, width / height, 1.15));
+  }
+
   const partScene = new THREE.Scene();
   lights(partScene);
 
@@ -96,7 +117,7 @@ export function createBookletRenderer(build: Build, width = 900, height = 680): 
     },
     async step(n: number) {
       model.setVisible(cumulative[n - 1]);
-      return draw(scene, camera, width, height);
+      return draw(scene, stepCameras[n - 1], width, height);
     },
     async part(part, hex, w, l) {
       const fake: Build = {
