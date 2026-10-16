@@ -6,8 +6,11 @@ export interface BrickColor {
   hex: string;
 }
 
-/** Direction (engine axes) the low side of a 45° slope brick faces. */
-export type SlopeDir = "+x" | "-x" | "+y" | "-y";
+/** Direction (engine axes) the low side of a straight 45° slope brick faces. */
+export type StraightDir = "+x" | "-x" | "+y" | "-y";
+/** The two directions a 2×2 corner slope (3045, double convex) slopes down toward. */
+export type CornerDir = "+x+y" | "+x-y" | "-x+y" | "-x-y";
+export type SlopeDir = StraightDir | CornerDir;
 
 export interface Brick {
   id: number;
@@ -20,7 +23,11 @@ export interface Brick {
   rot: 0 | 90;
   color: BrickColor;
   hidden: boolean;
-  /** null for a plain brick; set for Slope 45 parts (3040, 3039). 2 studs deep along it. */
+  /**
+   * null for a plain brick. For Slope 45 parts (3040, 3039) the direction their low side
+   * faces; the footprint is 2 studs deep along it. For the corner slope 3045, two directions;
+   * its one stud is on the opposite corner.
+   */
   slope: SlopeDir | null;
 }
 
@@ -47,6 +54,9 @@ export interface Build {
 }
 
 export type MeshStatus = "queued" | "running" | "done" | "error";
+
+/** Slope 45 2×2 Double Convex: the corner slope. */
+export const CORNER_PART = "3045";
 
 export const sizeX = (b: Brick) => (b.rot === 90 ? b.l : b.w);
 export const sizeY = (b: Brick) => (b.rot === 90 ? b.w : b.l);

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Build } from "../types";
 import { BRICK_H, brickCenter, buildBrickScene, stepOrder, type BrickScene } from "./bricks";
-import { sizeX, sizeY } from "../types";
+import { CORNER_PART, sizeX, sizeY } from "../types";
 
 /** Renders instruction-booklet images: flat toon shading, black outlines, one fixed iso camera. */
 export interface BookletRenderer {
@@ -123,8 +123,9 @@ export function createBookletRenderer(build: Build, width = 900, height = 680): 
       const fake: Build = {
         id: "part", size_studs: l, dims: { x: l, y: w, z: 1 },
         bricks: [{ id: 0, part, w, l, x: 0, y: 0, z: 0, rot: 90, color: { hex, name: "", bricklink: 0, ldraw: 0 }, hidden: false,
-          // Laid long side along x, so a slope (2 deep) faces -x: toward the booklet camera.
-          slope: slope ? "-x" : null }],
+          // Laid long side along x, so a slope (2 deep) faces -x: toward the booklet camera,
+          // which looks from -x and -y (engine axes). A corner slope faces it on both sides.
+          slope: !slope ? null : part === CORNER_PART ? "-x-y" : "-x" }],
         steps: [{ n: 1, brick_ids: [0] }], parts: [], warnings: [],
         stats: { brick_count: 1, step_count: 1, est_cost_usd: 0 },
       };

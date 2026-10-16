@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import type { Brick, Build, SlopeDir } from "../types";
+import type { Brick, Build, CornerDir, SlopeDir, StraightDir } from "../types";
 import { sizeX, sizeY } from "../types";
 
 // World units: 1 stud pitch = 1. A brick is 9.6/8 = 1.2 tall; a plate (z unit) is 0.4.
@@ -14,7 +14,10 @@ const STUD_H = 0.21;
 // low lip at the front, as in the real parts (LDraw 3040/3039: a 4 LDU lip on a 24 LDU brick).
 const SLOPE_LIP = BRICK_H * (4 / 24);
 // Turn a wedge built facing world +X toward each engine direction (engine y = world -Z).
-const SLOPE_YAW: Record<SlopeDir, number> = { "+x": 0, "-x": Math.PI, "+y": Math.PI / 2, "-y": -Math.PI / 2 };
+const SLOPE_YAW: Record<StraightDir, number> = { "+x": 0, "-x": Math.PI, "+y": Math.PI / 2, "-y": -Math.PI / 2 };
+// A corner wedge is built facing world +X and +Z (engine "+x-y"); turn it toward each corner.
+const CORNER_YAW: Record<CornerDir, number> = { "+x-y": 0, "+x+y": Math.PI / 2, "-x+y": Math.PI, "-x-y": -Math.PI / 2 };
+const isCorner = (s: SlopeDir): s is CornerDir => s.length === 4;
 
 const faceCache = new Map<string, THREE.BufferGeometry>();
 const edgeCache = new Map<string, Float32Array>();
@@ -34,6 +37,7 @@ function studs(sx: number, sy: number): [number, number][] {
  */
 function shape(sx: number, sy: number, slope: SlopeDir | null) {
   if (!slope) return { body: new THREE.BoxGeometry(sx - GAP, BRICK_H - GAP, sy - GAP), studs: studs(sx, sy), yaw: 0 };
+  if (isCorner(slope)) return { body: cornerWedge(), studs: [[-0.5, -0.5]] as [number, number][], yaw: CORNER_YAW[slope] };
   const across = slope === "+x" || slope === "-x" ? sy : sx;
   const d = 1 - GAP / 2, h = (BRICK_H - GAP) / 2;
   const profile = new THREE.Shape([
@@ -44,6 +48,38 @@ function shape(sx: number, sy: number, slope: SlopeDir | null) {
   body.translate(0, 0, -(across - GAP) / 2);
   const back = studs(1, across).map(([, z]): [number, number] => [-0.5, z]);
   return { body, studs: back, yaw: SLOPE_YAW[slope] };
+}
+
+/**
+ * Slope 45 2×2 Double Convex (3045), 2×2 and centred, facing +X and +Z. A flat top over the
+ * back (-X, -Z) stud cell; two 45° faces fall from it to a low lip on the +X and +Z sides
+ * and meet along a hip running out to the front corner.
+ */
+function cornerWedge(): THREE.BufferGeometry {
+  const d = 1 - GAP / 2, h = (BRICK_H - GAP) / 2, lip = -h + SLOPE_LIP;
+  const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const faces: [THREE.Vector3[], THREE.Vector3][] = [
+    [[V(-d, h, -d), V(0, h, -d), V(0, h, 0), V(-d, h, 0)], V(0, 1, 0)], // flat top
+    [[V(0, h, -d), V(d, lip, -d), V(d, lip, d), V(0, h, 0)], V(1, 1, 0)], // +X slope
+    [[V(-d, h, 0), V(0, h, 0), V(d, lip, d), V(-d, lip, d)], V(0, 1, 1)], // +Z slope
+    [[V(d, -h, -d), V(d, -h, d), V(d, lip, d), V(d, lip, -d)], V(1, 0, 0)], // +X lip
+    [[V(-d, -h, d), V(d, -h, d), V(d, lip, d), V(-d, lip, d)], V(0, 0, 1)], // +Z lip
+    [[V(-d, -h, -d), V(d, -h, -d), V(d, lip, -d), V(0, h, -d), V(-d, h, -d)], V(0, 0, -1)], // back
+    [[V(-d, -h, -d), V(-d, -h, d), V(-d, lip, d), V(-d, h, 0), V(-d, h, -d)], V(-1, 0, 0)], // side
+    [[V(-d, -h, -d), V(d, -h, -d), V(d, -h, d), V(-d, -h, d)], V(0, -1, 0)], // bottom
+  ];
+  const pos: number[] = [];
+  for (const [poly, out] of faces) {
+    // Fan-triangulate the convex polygon, wound counter-clockwise seen from outside.
+    const n = new THREE.Vector3().subVectors(poly[1], poly[0]).cross(new THREE.Vector3().subVectors(poly[2], poly[0]));
+    const pts = n.dot(out) < 0 ? [...poly].reverse() : poly;
+    for (let i = 1; i < pts.length - 1; i++) for (const p of [pts[0], pts[i], pts[i + 1]]) pos.push(p.x, p.y, p.z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  g.computeVertexNormals(); // merged with box/cylinder parts, so it needs the same attributes
+  return g;
 }
 
 /** Box (or slope wedge) plus studs for an sx × sy part, centred on its footprint. */
@@ -58,7 +94,7 @@ export function brickGeometry(sx: number, sy: number, slope: SlopeDir | null = n
       s.translate(x, BRICK_H / 2 + STUD_H / 2 - GAP / 2, z);
       parts.push(s);
     }
-    g = mergeGeometries(parts.map((p) => p.toNonIndexed()))!;
+    g = mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)))!;
     g.rotateY(yaw);
     g.computeVertexNormals();
     faceCache.set(k, g);

@@ -35,7 +35,9 @@ class Brick:
     color: int  # palette index
     hidden: bool = False
     # None for a plain brick. For a 45-degree slope brick, the engine direction its low side
-    # faces: "+x", "-x", "+y" or "-y". The footprint is 2 studs deep along that axis.
+    # faces: "+x", "-x", "+y" or "-y" (the footprint is 2 studs deep along that axis). For a
+    # 2x2 corner slope (3045), two directions: "+x+y", "+x-y", "-x+y" or "-x-y"; its one stud
+    # is on the opposite corner.
     slope: str | None = None
 
     @property

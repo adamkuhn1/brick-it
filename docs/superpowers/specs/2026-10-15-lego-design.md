@@ -18,7 +18,7 @@ Runs entirely on the user's machine (clone repo, run setup, open in browser). No
 
 ## 2. Non-goals (MVP)
 
-- Plates or other non-brick parts beyond the two 45° slopes (3040, 3039). The grid is designed to allow plates later.
+- Plates or other non-brick parts beyond the 45° slopes (3040, 3039, and the 3045 double-convex corner). The grid is designed to allow plates later.
 - 3D "build mode" that animates steps inside the viewer.
 - Desktop app packaging, browser-only model inference.
 - Buy button / cart integration (MVP only exports the BrickLink Wanted List file).
@@ -63,7 +63,7 @@ lego/
 }
 ```
 
-Coordinates: `x`,`y` in studs, `z` in **plate units** (1 brick = 3 plates; MVP always uses multiples of 3). `rot` is 0 or 90. `slope` is `null` for a plain brick; for a Slope 45 part (3040 2×1, 3039 2×2) it is the engine direction its low side faces (`"+x"`, `"-x"`, `"+y"`, `"-y"`), and the footprint is 2 studs deep along that axis. Only the back row has studs.
+Coordinates: `x`,`y` in studs, `z` in **plate units** (1 brick = 3 plates; MVP always uses multiples of 3). `rot` is 0 or 90. `slope` is `null` for a plain brick; for a Slope 45 part (3040 2×1, 3039 2×2) it is the engine direction its low side faces (`"+x"`, `"-x"`, `"+y"`, `"-y"`), and the footprint is 2 studs deep along that axis. Only the back row has studs. For the corner slope 3045 (Slope 45 2×2 Double Convex) it names two directions (`"+x+y"`, `"+x-y"`, `"-x+y"`, `"-x-y"`): the part slopes down toward both, and its one stud is on the opposite corner.
 
 ## 4. Engine pipeline
 

@@ -1,4 +1,5 @@
 import type { Brick, Build, Step } from "./types";
+import { CORNER_PART } from "./types";
 
 export const STEPS_PER_PAGE = 4;
 
@@ -35,8 +36,9 @@ export function inventory(build: Build): PartLine[] {
   return tally(build.bricks);
 }
 
-/** "Red 2×2 slope" — what a part line shows in alt text. */
-export const partLabel = (p: PartLine) => `${p.colorName} ${p.w}×${p.l} ${p.slope ? "slope" : "brick"}`;
+/** "Red 2×2 slope" / "Red 2×2 corner slope" — what a part line shows in alt text. */
+export const partLabel = (p: PartLine) =>
+  `${p.colorName} ${p.w}×${p.l} ${p.part === CORNER_PART ? "corner slope" : p.slope ? "slope" : "brick"}`;
 
 export function paginate<T>(items: T[], perPage = STEPS_PER_PAGE): T[][] {
   const pages: T[][] = [];

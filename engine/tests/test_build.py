@@ -10,7 +10,7 @@ import trimesh
 from engine import build
 from engine.export import to_bricklink_xml, to_csv, to_ldraw
 from engine.layout import PARTS
-from engine.slopes import SLOPE_PARTS
+from engine.slopes import CORNER_PART, CORNERS, SLOPE_PARTS
 from engine.structure import adjacency, components
 from meshes import arch, cube, l_shape, overhanging_t, pyramid, sphere
 
@@ -49,7 +49,10 @@ def test_every_step_attaches_to_the_model(built):
 def test_vocabulary(built):
     for b in built.bricks:
         brick = PARTS[(b.w, b.l)]
-        assert b.part == (SLOPE_PARTS[brick] if b.slope else brick)
+        if b.slope in CORNERS:
+            assert (brick, b.part) == ("3003", CORNER_PART)
+        else:
+            assert b.part == (SLOPE_PARTS[brick] if b.slope else brick)
 
 
 def test_json_matches_contract(built):
