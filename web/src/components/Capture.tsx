@@ -80,6 +80,7 @@ export default function Capture({ onUploaded, initialError = null }: Props) {
   return (
     <main className="capture">
       <header className="intro">
+        <span className="eyebrow">Photo to LEGO</span>
         <h1>Turn a photo into a LEGO build</h1>
         <p>
           Real bricks you can buy, a model you can spin around, and a step-by-step instruction booklet.
@@ -89,25 +90,19 @@ export default function Capture({ onUploaded, initialError = null }: Props) {
 
       <ol className="howto">
         <li className="current">
-          <span className="step-n">1</span>
-          <div>
-            <h2>Add a photo</h2>
-            <p>One object, plain background, shot from a slight angle above.</p>
-          </div>
+          <span className="num">1</span>
+          <h2>Add a photo</h2>
+          <p>One object, plain background, shot from a slight angle above.</p>
         </li>
         <li>
-          <span className="step-n">2</span>
-          <div>
-            <h2>Pick a size</h2>
-            <p>8 to 32 studs wide.</p>
-          </div>
+          <span className="num">2</span>
+          <h2>Pick a size</h2>
+          <p>8 to 32 studs wide.</p>
         </li>
         <li>
-          <span className="step-n">3</span>
-          <div>
-            <h2>Build it</h2>
-            <p>Print the booklet and order the parts.</p>
-          </div>
+          <span className="num">3</span>
+          <h2>Build it</h2>
+          <p>Print the booklet and order the parts.</p>
         </li>
       </ol>
 
@@ -128,6 +123,13 @@ export default function Capture({ onUploaded, initialError = null }: Props) {
             if (f) send(f);
           }}
         >
+          <span className="drop-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <circle cx="9" cy="10" r="1.6" />
+              <path d="m21 16-5-5-8 8" />
+            </svg>
+          </span>
           <p className="drop-title">{busy ? "Uploading…" : "Drop a photo here"}</p>
           <div className="row">
             <button className="btn primary" onClick={() => input.current?.click()} disabled={busy}>

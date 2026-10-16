@@ -47,17 +47,19 @@ export default function Result({ meshId, onRestart }: Props) {
 
   return (
     <main className="result">
-      <nav className="tabs no-print" role="tablist">
-        <button role="tab" aria-selected={tab === "model"} onClick={() => setTab("model")}>
-          Model
+      <div className="toolbar no-print">
+        <nav className="segmented" role="tablist">
+          <button role="tab" aria-selected={tab === "model"} onClick={() => setTab("model")}>
+            Model
+          </button>
+          <button role="tab" aria-selected={tab === "instructions"} onClick={() => setTab("instructions")} disabled={!build}>
+            Instructions
+          </button>
+        </nav>
+        <button className="btn ghost" onClick={onRestart}>
+          ← New photo
         </button>
-        <button role="tab" aria-selected={tab === "instructions"} onClick={() => setTab("instructions")} disabled={!build}>
-          Instructions
-        </button>
-        <button className="link" onClick={onRestart}>
-          New photo
-        </button>
-      </nav>
+      </div>
 
       {build && build.warnings.length > 0 && (
         <ul className="warnings no-print" role="status">
@@ -86,59 +88,63 @@ export default function Result({ meshId, onRestart }: Props) {
           </div>
 
           <aside className="panel">
-            <label className="size">
-              <span className="size-head">
-                <span>Size</span>
-                <output>{size} studs wide</output>
-              </span>
-              <input
-                type="range"
-                min={MIN}
-                max={MAX}
-                step={1}
-                value={size}
-                onChange={(e) => setSize(Number(e.target.value))}
-              />
-              <span className="range-ends muted small">
-                <span>{MIN}</span>
-                <span>{MAX}</span>
-              </span>
-            </label>
+            <section>
+              <label className="size">
+                <span className="size-head">
+                  <span>Size</span>
+                  <output>{size} studs wide</output>
+                </span>
+                <input
+                  type="range"
+                  min={MIN}
+                  max={MAX}
+                  step={1}
+                  value={size}
+                  onChange={(e) => setSize(Number(e.target.value))}
+                />
+                <span className="range-ends muted small">
+                  <span>{MIN}</span>
+                  <span>{MAX}</span>
+                </span>
+              </label>
+            </section>
+
+            <section>
+              {build && (
+                <dl className="stats">
+                  <div>
+                    <dt>Bricks</dt>
+                    <dd>{build.stats.brick_count.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>Steps</dt>
+                    <dd>{build.stats.step_count}</dd>
+                  </div>
+                  <div>
+                    <dt>Parts cost</dt>
+                    <dd>{fmtCost(build.stats.est_cost_usd)}</dd>
+                  </div>
+                </dl>
+              )}
+              {build && build.stats.brick_count > BIG_BUILD && (
+                <p className="note small">That's a lot of bricks. A smaller size will be quicker to build.</p>
+              )}
+              <p className="muted small">Cost is a rough estimate from average used-part prices.</p>
+            </section>
 
             {build && (
-              <dl className="stats">
-                <div>
-                  <dt>Bricks</dt>
-                  <dd>{build.stats.brick_count.toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt>Steps</dt>
-                  <dd>{build.stats.step_count}</dd>
-                </div>
-                <div>
-                  <dt>Parts cost</dt>
-                  <dd>{fmtCost(build.stats.est_cost_usd)}</dd>
-                </div>
-              </dl>
-            )}
-            {build && build.stats.brick_count > BIG_BUILD && (
-              <p className="note small">That's a lot of bricks. A smaller size will be quicker to build.</p>
-            )}
-            <p className="muted small">Cost is a rough estimate from average used-part prices.</p>
-
-            {build && (
-              <div className="downloads">
+              <section className="downloads">
                 <h2>Download</h2>
                 <a className="btn primary" href={exportUrl(build.id, "bricklink")} download>
                   BrickLink wanted list
                 </a>
-                <a className="btn" href={exportUrl(build.id, "ldraw")} download>
+                <a className="btn download" href={exportUrl(build.id, "ldraw")} download>
                   LDraw model (.ldr)
                 </a>
-                <a className="btn" href={exportUrl(build.id, "csv")} download>
+                <a className="btn download" href={exportUrl(build.id, "csv")} download>
                   Parts list (.csv)
                 </a>
-              </div>
+              </section>
             )}
           </aside>
         </div>

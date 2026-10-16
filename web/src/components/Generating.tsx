@@ -51,8 +51,9 @@ export default function Generating({ meshId, onDone, onError }: Props) {
       </div>
       <h1>{LABEL[status]}…</h1>
       <p className="muted">
-        This usually takes 30–90 seconds on a laptop. The first run also downloads the model. {seconds}s
+        This usually takes 30–90 seconds on a laptop. The first run also downloads the model.
       </p>
+      <p className="timer">{seconds}s</p>
     </main>
   );
 }
