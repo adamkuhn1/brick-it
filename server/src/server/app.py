@@ -22,7 +22,7 @@ from .model import ModelUnavailable, get_model
 
 ROOT = Path(__file__).resolve().parents[3]
 MAX_UPLOAD = 30 * 1024 * 1024
-MIN_SIZE, MAX_SIZE = 8, 32
+MIN_SIZE, MAX_SIZE = 8, 48
 ID_RE = re.compile(r"^[0-9a-f]{64}$")
 BUILD_RE = re.compile(r"^([0-9a-f]{64})-(\d+)$")
 

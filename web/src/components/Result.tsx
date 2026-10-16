@@ -6,7 +6,7 @@ const BrickViewer = lazy(() => import("./BrickViewer"));
 const Booklet = lazy(() => import("./Booklet"));
 
 const MIN = 8;
-const MAX = 32;
+const MAX = 48;
 const BIG_BUILD = 2000;
 
 interface Props {

@@ -132,6 +132,8 @@ def test_bad_requests(tmp_path):
     assert c.post("/api/meshes", files={"file": ("x.txt", b"hello")}).status_code == 422
     assert c.post("/api/meshes", files={"file": ("x.glb", b"garbage")}).status_code == 422
     assert c.post("/api/builds", json={"mesh_id": "0" * 64, "size_studs": 16}).status_code == 404
+    assert c.post("/api/builds", json={"mesh_id": "0" * 64, "size_studs": 48}).status_code == 404
+    assert c.post("/api/builds", json={"mesh_id": "0" * 64, "size_studs": 49}).status_code == 422
     assert c.post("/api/builds", json={"mesh_id": "0" * 64, "size_studs": 99}).status_code == 422
     assert c.get("/api/meshes/../../etc").status_code == 404
     assert c.get("/api/builds/nope/export/csv").status_code == 404

@@ -91,7 +91,7 @@ def test_plain_mesh_no_colors_and_tiny_size():
 
 
 def test_size_range_runs():
-    for size in (8, 32):
+    for size in (8, 32, 48):
         out = build(sphere(), size, up="z")
         assert out.dims[0] == size and out.steps
 
@@ -107,4 +107,12 @@ def test_car_on_wheels_is_one_piece_at_every_step():
     assert layer > 0  # starts on the chassis, not on four separate wheels
     first = out.steps[0].brick_ids
     assert all(b.layer >= layer for b in out.bricks if b.id in first)
+    assert_steps_always_one_piece(out)
+
+
+def test_car_at_max_size_is_one_piece_at_every_step():
+    from meshes import car
+    out = build(car(), 48, up="z")
+    assert out.dims[0] == 48
+    assert len(components(out.bricks, out.dims)) == 1, out.warnings
     assert_steps_always_one_piece(out)

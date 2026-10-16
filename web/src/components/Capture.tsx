@@ -97,7 +97,7 @@ export default function Capture({ onUploaded, initialError = null }: Props) {
         <li>
           <span className="num">2</span>
           <h2>Pick a size</h2>
-          <p>8 to 32 studs wide.</p>
+          <p>8 to 48 studs wide.</p>
         </li>
         <li>
           <span className="num">3</span>

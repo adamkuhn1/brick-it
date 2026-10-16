@@ -82,7 +82,7 @@ Top-level entry: `engine.build(mesh, size_studs) -> Build`.
 ## 5. Model (server)
 
 - **TripoSR** (MIT license) with its bundled `rembg` background removal, running on PyTorch MPS on Apple Silicon, CPU fallback.
-- Memory tuned for an 8 GB M2: reduced marching-cubes resolution and chunk size. Low resolution is fine; LEGO grids are ≤ 32 studs.
+- Memory tuned for an 8 GB M2: reduced marching-cubes resolution and chunk size. Low resolution is fine; LEGO grids are ≤ 48 studs.
 - Server checks input before inference: rejects tiny (<256 px), near-blank, or very blurry (low Laplacian variance) images with a clear message. After inference, rejects meshes that are empty or nearly flat (thinnest bounding box axis <10% of largest) with a "try another photo" hint.
 - Inference runs in a worker thread; client polls `GET /api/meshes/<id>` for status (`queued | running | done | error`).
 
@@ -94,7 +94,7 @@ Single page, three states:
 2. **Generating:** progress state while polling mesh status.
 3. **Result:**
    - 3D viewer (react-three-fiber): orbit controls, bricks rendered as boxes with studs, instanced for performance.
-   - Size slider (8–32 studs, default 16) showing brick count, step count, est. cost; debounced re-build call.
+   - Size slider (8–48 studs, default 16) showing brick count, step count, est. cost; debounced re-build call.
    - Tabs: **Model** | **Instructions**.
    - Download buttons: LDraw, BrickLink XML, parts CSV.
 

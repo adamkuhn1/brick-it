@@ -29,7 +29,7 @@ To skip the model install, run `./scripts/setup.sh --no-model`. You can still dr
 
 **Photo tips:** use one object on a plain background, shot from slightly above at an angle. Very small, blank, or blurry photos are rejected before the model runs.
 
-On an 8 GB M2 MacBook Air, TripoSR takes about 30 s per photo on the GPU (MPS) and peaks at roughly 2 GB of memory. The brick engine takes under 1 s even at 32 studs. Results are cached by image hash, so moving the size slider only reruns the engine.
+On an 8 GB M2 MacBook Air, TripoSR takes about 30 s per photo on the GPU (MPS) and peaks at roughly 2 GB of memory. The brick engine takes under 1 s at 32 studs and up to about 5 s at the 48-stud maximum. Results are cached by image hash, so moving the size slider only reruns the engine.
 
 ## Tests
 
