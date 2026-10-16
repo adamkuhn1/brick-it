@@ -125,10 +125,21 @@ p { margin: 0; }
   position: relative; height: min(72vh, 760px); min-height: 360px;
   background: radial-gradient(ellipse at 50% 40%, #f6f9fb 0%, var(--page) 70%);
   border-radius: var(--radius-lg); border: 2px solid var(--callout-edge); overflow: hidden;
+  display: flex; flex-direction: column;
 }
 .viewer.busy canvas { opacity: 0.6; transition: opacity 200ms; }
 .viewer-empty { height: 100%; display: grid; place-items: center; color: var(--muted); font-weight: 600; }
 .rebuilding { position: absolute; top: 12px; left: 12px; background: var(--ink); color: #fff; font-weight: 700; font-size: 0.85rem; padding: 4px 10px; border-radius: 99px; }
+.viewer-canvas { flex: 1; min-height: 0; }
+.scrubber { flex: none; display: grid; gap: 2px; background: var(--paper); border-top: 2px solid var(--callout-edge); padding: 8px 12px 10px; }
+.scrubber-label { font-weight: 700; font-size: 0.875rem; font-variant-numeric: tabular-nums; text-align: center; }
+.scrubber-row { display: flex; align-items: center; gap: 8px; }
+.scrubber-btn {
+  flex: none; width: 44px; height: 44px; border-radius: var(--radius-sm); border: 2px solid var(--ink);
+  background: var(--paper); color: var(--ink); font: 800 1.4rem/1 var(--font); cursor: pointer;
+}
+.scrubber-btn:hover:not(:disabled) { background: var(--callout); }
+.scrubber-btn:disabled { opacity: 0.4; cursor: default; }
 
 .panel {
   background: var(--callout); border: 2px solid var(--callout-edge); border-radius: var(--radius-lg);

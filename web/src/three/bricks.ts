@@ -207,3 +207,16 @@ export function buildBrickScene(
 export function stepOrder(build: Build): number[] {
   return build.steps.flatMap((s) => s.brick_ids);
 }
+
+/**
+ * Instruction step (1-based) that the k-th placed brick belongs to, for a view showing the
+ * first k bricks of `stepOrder`. Returns 0 when nothing is placed yet.
+ */
+export function stepAt(build: Build, k: number): number {
+  let placed = 0;
+  for (let i = 0; i < build.steps.length; i++) {
+    placed += build.steps[i].brick_ids.length;
+    if (k <= placed) return k <= 0 ? 0 : i + 1;
+  }
+  return build.steps.length;
+}

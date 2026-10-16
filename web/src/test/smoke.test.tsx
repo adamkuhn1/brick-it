@@ -1,8 +1,9 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { inventory, paginate, stepParts } from "../booklet";
 import Booklet from "../components/Booklet";
-import { BRICK_H, brickGeometry, buildBrickScene, stepOrder } from "../three/bricks";
+import StepScrubber from "../components/StepScrubber";
+import { BRICK_H, brickGeometry, buildBrickScene, stepAt, stepOrder } from "../three/bricks";
 import * as THREE from "three";
 import type { Build } from "../types";
 import fixture from "./fixture-build.json";
@@ -37,6 +38,38 @@ describe("viewer scene", () => {
     expect(s.bounds.isEmpty()).toBe(false);
     // ground is at y = 0 and model is centred
     expect(s.bounds.min.y).toBeCloseTo(0, 5);
+  });
+});
+
+describe("step scrubber", () => {
+  const total = build.bricks.length;
+  const first = build.steps[0].brick_ids.length;
+
+  it("maps a brick count to its instruction step", () => {
+    expect(stepAt(build, 0)).toBe(0);
+    expect(stepAt(build, 1)).toBe(1);
+    expect(stepAt(build, first)).toBe(1);
+    expect(stepAt(build, first + 1)).toBe(2);
+    expect(stepAt(build, total)).toBe(build.steps.length);
+  });
+
+  it("labels progress and moves one brick at a time within bounds", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<StepScrubber build={build} value={first + 1} onChange={onChange} />);
+    expect(screen.getByText(`Step 2 of ${build.steps.length} · brick ${first + 1} of ${total}`)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Previous brick" }));
+    expect(onChange).toHaveBeenLastCalledWith(first);
+    fireEvent.click(screen.getByRole("button", { name: "Next brick" }));
+    expect(onChange).toHaveBeenLastCalledWith(first + 2);
+    fireEvent.change(screen.getByRole("slider", { name: "Build progress" }), { target: { value: "3" } });
+    expect(onChange).toHaveBeenLastCalledWith(3);
+
+    rerender(<StepScrubber build={build} value={total} onChange={onChange} />);
+    expect(screen.getByText(`Finished model · ${total} bricks`)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Next brick" }) as HTMLButtonElement).disabled).toBe(true);
+    rerender(<StepScrubber build={build} value={0} onChange={onChange} />);
+    expect(screen.getByText("No bricks placed yet")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Previous brick" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
 
