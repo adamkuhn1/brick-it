@@ -5,7 +5,8 @@ We scale the mesh so its largest horizontal extent equals `size_studs` stud widt
 squash Z by 1.2 so every grid unit is one stud (x, y) or one brick (z).
 
 Occupancy comes from dense surface sampling (robust to non-watertight meshes) followed by
-3D hole filling. Surface samples also carry the color, interpolated from vertex colors.
+3D hole filling. Surface samples also carry the color, interpolated from vertex colors, and
+the face normal, which records where the surface leans like a 45-degree roof (for slopes).
 """
 
 from __future__ import annotations
@@ -26,6 +27,14 @@ class Voxels:
     rgb: np.ndarray  # uint8 [X, Y, Z, 3]; meaningful where surface[...] is True
     surface: np.ndarray  # bool [X, Y, Z], voxels touched by the mesh surface
     has_color: bool
+    # float32 [X, Y, Z, 2]: per voxel, the summed horizontal direction of surface samples that
+    # lean like a slope, divided by the voxel's sample count. ~0 on flat tops and walls.
+    tilt: np.ndarray | None = None
+
+
+# A surface sample "leans" when its normal is 20-70 degrees from straight up. Flat tops and
+# vertical walls are excluded, so the edge voxel of a box (half top, half wall) scores zero.
+TILT_NZ = (np.cos(np.radians(70)), np.cos(np.radians(20)))
 
 
 def _to_z_up(mesh: trimesh.Trimesh, up: str) -> trimesh.Trimesh:
@@ -158,7 +167,21 @@ def voxelize(
         avg = (total[hit] / count[hit, None]).round().astype(np.uint8)
         rgb.reshape(-1, 3)[hit] = avg
 
-    return Voxels(occ=occ, rgb=rgb, surface=surface, has_color=has_color)
+    return Voxels(occ=occ, rgb=rgb, surface=surface, has_color=has_color,
+                  tilt=_tilt(mesh.face_normals[face_idx], idx, dims))
+
+
+def _tilt(normals: np.ndarray, idx: np.ndarray, dims) -> np.ndarray:
+    flat = np.ravel_multi_index(idx.T, dims)
+    nz = normals[:, 2]
+    leaning = (nz > TILT_NZ[0]) & (nz < TILT_NZ[1])
+    h = normals[:, :2]
+    h = h / np.maximum(np.linalg.norm(h, axis=1, keepdims=True), 1e-9)
+    total = np.zeros((int(np.prod(dims)), 2))
+    np.add.at(total, flat[leaning], h[leaning])
+    count = np.bincount(flat, minlength=total.shape[0])
+    total /= np.maximum(count, 1)[:, None]
+    return total.reshape(*dims, 2).astype(np.float32)
 
 
 FLOATER_SHARE = 0.03

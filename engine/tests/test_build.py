@@ -10,10 +10,12 @@ import trimesh
 from engine import build
 from engine.export import to_bricklink_xml, to_csv, to_ldraw
 from engine.layout import PARTS
+from engine.slopes import SLOPE_PARTS
 from engine.structure import adjacency, components
-from meshes import arch, cube, l_shape, overhanging_t, sphere
+from meshes import arch, cube, l_shape, overhanging_t, pyramid, sphere
 
-SHAPES = {"cube": cube, "sphere": sphere, "l": l_shape, "arch": arch, "t": overhanging_t}
+SHAPES = {"cube": cube, "sphere": sphere, "l": l_shape, "arch": arch, "t": overhanging_t,
+          "pyramid": pyramid}
 
 
 @pytest.fixture(scope="module", params=list(SHAPES))
@@ -46,14 +48,15 @@ def test_every_step_attaches_to_the_model(built):
 
 def test_vocabulary(built):
     for b in built.bricks:
-        assert PARTS[(b.w, b.l)] == b.part
+        brick = PARTS[(b.w, b.l)]
+        assert b.part == (SLOPE_PARTS[brick] if b.slope else brick)
 
 
 def test_json_matches_contract(built):
     j = json.loads(json.dumps(built.to_json()))
     assert set(j) == {"id", "size_studs", "dims", "bricks", "steps", "parts", "stats", "warnings"}
     b = j["bricks"][0]
-    assert set(b) == {"id", "part", "w", "l", "x", "y", "z", "rot", "color", "hidden"}
+    assert set(b) == {"id", "part", "w", "l", "x", "y", "z", "rot", "color", "hidden", "slope"}
     assert set(b["color"]) == {"bricklink", "ldraw", "name", "hex"}
     assert j["stats"]["brick_count"] == len(j["bricks"])
     assert sum(p["qty"] for p in j["parts"]) == len(j["bricks"])

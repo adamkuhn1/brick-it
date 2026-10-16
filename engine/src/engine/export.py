@@ -16,13 +16,27 @@ PART_NAMES = {
     "3005": "Brick 1 x 1", "3004": "Brick 1 x 2", "3622": "Brick 1 x 3", "3010": "Brick 1 x 4",
     "3009": "Brick 1 x 6", "3008": "Brick 1 x 8", "3003": "Brick 2 x 2", "3002": "Brick 2 x 3",
     "3001": "Brick 2 x 4", "2456": "Brick 2 x 6", "3007": "Brick 2 x 8",
+    "3040": "Slope 45 2 x 1", "3039": "Slope 45 2 x 2",
 }
 
 # Rough average used-market prices (USD) per piece. Labelled as an estimate in the UI.
 PRICE_USD = {
     "3005": 0.06, "3004": 0.07, "3622": 0.09, "3010": 0.10, "3009": 0.15, "3008": 0.20,
     "3003": 0.09, "3002": 0.12, "3001": 0.14, "2456": 0.25, "3007": 0.30,
+    "3040": 0.07, "3039": 0.10,
 }
+
+# LDraw slope parts (3040, 3039) face -Z, with their origin over the back stud row: the
+# footprint runs z = -30..10, so its centre is 10 LDU toward the low side. Engine y maps to
+# LDraw Z. Rotation (about Y) that turns the part's -Z toward each engine direction:
+SLOPE_ROT = {
+    "-y": "1 0 0 0 1 0 0 0 1",
+    "+y": "-1 0 0 0 1 0 0 0 -1",
+    "+x": "0 0 -1 0 1 0 1 0 0",
+    "-x": "0 0 1 0 1 0 -1 0 0",
+}
+SLOPE_DIR = {"+x": (1, 0), "-x": (-1, 0), "+y": (0, 1), "-y": (0, -1)}
+SLOPE_ORIGIN_OFFSET = 10
 
 
 def estimate_cost(bricks: list[Brick]) -> float:
@@ -41,6 +55,11 @@ def to_ldraw(bricks: list[Brick], steps=None, name: str = "lego-build") -> str:
             cz = (b.y + b.size_y / 2) * LDU_STUD
             top = -(b.layer + 1) * LDU_BRICK
             m = "1 0 0 0 1 0 0 0 1" if b.rot == 90 or b.w == b.l else "0 0 1 0 1 0 -1 0 0"
+            if b.slope:
+                m = SLOPE_ROT[b.slope]
+                dx, dz = SLOPE_DIR[b.slope]
+                cx -= dx * SLOPE_ORIGIN_OFFSET  # origin sits half a stud behind the centre
+                cz -= dz * SLOPE_ORIGIN_OFFSET
             lines.append(f"1 {PALETTE[b.color].ldraw} {_n(cx)} {_n(top)} {_n(cz)} {m} {b.part}.dat")
         if steps:
             lines.append("0 STEP")

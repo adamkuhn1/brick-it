@@ -7,7 +7,7 @@ import { sizeX, sizeY } from "../types";
 export interface BookletRenderer {
   cover(): Promise<string>;
   step(n: number): Promise<string>; // 1-based step number, cumulative model
-  part(part: string, hex: string, w: number, l: number): Promise<string>;
+  part(part: string, hex: string, w: number, l: number, slope?: boolean): Promise<string>;
   dispose(): void;
 }
 
@@ -119,10 +119,12 @@ export function createBookletRenderer(build: Build, width = 900, height = 680): 
       model.setVisible(cumulative[n - 1]);
       return draw(scene, stepCameras[n - 1], width, height);
     },
-    async part(part, hex, w, l) {
+    async part(part, hex, w, l, slope = false) {
       const fake: Build = {
         id: "part", size_studs: l, dims: { x: l, y: w, z: 1 },
-        bricks: [{ id: 0, part, w, l, x: 0, y: 0, z: 0, rot: 90, color: { hex, name: "", bricklink: 0, ldraw: 0 }, hidden: false }],
+        bricks: [{ id: 0, part, w, l, x: 0, y: 0, z: 0, rot: 90, color: { hex, name: "", bricklink: 0, ldraw: 0 }, hidden: false,
+          // Laid long side along x, so a slope (2 deep) faces -x: toward the booklet camera.
+          slope: slope ? "-x" : null }],
         steps: [{ n: 1, brick_ids: [0] }], parts: [], warnings: [],
         stats: { brick_count: 1, step_count: 1, est_cost_usd: 0 },
       };

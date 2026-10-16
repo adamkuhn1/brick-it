@@ -10,8 +10,9 @@ import trimesh
 from .colors import colorize
 from .hollow import hollow
 from .layout import layout
+from .slopes import add_slopes, make_room
 from .steps import plan_steps
-from .structure import repair
+from .structure import components, repair
 from .types import Brick, Build, Step
 from .voxelize import voxelize
 
@@ -34,6 +35,13 @@ def build(
     vox = voxelize(mesh, size_studs, up=up)
     grid = hollow(colorize(vox, color_ref), size_studs)
     bricks, warnings = repair(layout(grid), grid)
+    if vox.tilt is not None and len(components(bricks, grid.shape)) == 1:
+        # Make room for slopes on sloped edges, then repair again: the re-tiling can leave a
+        # single-stud joint nearby. Supports were all added by the first pass.
+        supports = [w for w in warnings if w.startswith("Added")]
+        bricks, warnings = repair(make_room(bricks, grid, vox.tilt), grid)
+        warnings = supports + warnings
+        bricks = add_slopes(bricks, vox.tilt, grid.shape)
     steps = plan_steps(bricks)
     if len(bricks) > MAX_BRICKS_WARNING:
         warnings.append(f"{len(bricks)} bricks — that's a big build. Try a smaller size.")

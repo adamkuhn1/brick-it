@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { inventory, paginate, stepParts, type PartLine } from "../booklet";
+import { inventory, paginate, partLabel, stepParts, type PartLine } from "../booklet";
 import { createBookletRenderer, type BookletRenderer } from "../three/stepRenderer";
 import type { Build } from "../types";
 
@@ -28,7 +28,7 @@ function useBookletImages(build: Build, create: (b: Build) => BookletRenderer) {
     (async () => {
       const jobs: [string, () => Promise<string>][] = [
         ["cover", () => r.cover()],
-        ...parts.map((p): [string, () => Promise<string>] => [p.key, () => r.part(p.part, p.hex, p.w, p.l)]),
+        ...parts.map((p): [string, () => Promise<string>] => [p.key, () => r.part(p.part, p.hex, p.w, p.l, p.slope)]),
         ...build.steps.map((s): [string, () => Promise<string>] => [`step-${s.n}`, () => r.step(s.n)]),
       ];
       let batch: Images = {};
@@ -66,7 +66,7 @@ function Callout({ lines, images }: { lines: PartLine[]; images: Images }) {
     <div className="callout">
       {lines.map((p) => (
         <figure key={p.key}>
-          <Img src={images[p.key]} alt={`${p.colorName} ${p.w}×${p.l} brick`} />
+          <Img src={images[p.key]} alt={partLabel(p)} />
           <figcaption>{p.qty}x</figcaption>
         </figure>
       ))}
@@ -125,7 +125,7 @@ export default function Booklet({ build, createRenderer = createBookletRenderer 
           <div className="inv-grid">
             {lines.map((p) => (
               <figure key={p.key}>
-                <Img src={images[p.key]} alt={`${p.colorName} ${p.w}×${p.l} brick`} />
+                <Img src={images[p.key]} alt={partLabel(p)} />
                 <figcaption>
                   <strong>{p.qty}x</strong>
                   <span>{p.part}</span>

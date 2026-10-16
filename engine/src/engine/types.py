@@ -34,6 +34,9 @@ class Brick:
     rot: int  # 0: long side along y; 90: long side along x
     color: int  # palette index
     hidden: bool = False
+    # None for a plain brick. For a 45-degree slope brick, the engine direction its low side
+    # faces: "+x", "-x", "+y" or "-y". The footprint is 2 studs deep along that axis.
+    slope: str | None = None
 
     @property
     def layer(self) -> int:
@@ -90,6 +93,7 @@ class Build:
                 {
                     "id": b.id, "part": b.part, "w": b.w, "l": b.l, "x": b.x, "y": b.y, "z": b.z,
                     "rot": b.rot, "color": PALETTE[b.color].to_json(), "hidden": b.hidden,
+                    "slope": b.slope,
                 }
                 for b in self.bricks
             ],

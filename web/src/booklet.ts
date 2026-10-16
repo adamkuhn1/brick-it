@@ -10,6 +10,7 @@ export interface PartLine {
   hex: string;
   colorName: string;
   qty: number;
+  slope: boolean;
 }
 
 const partKey = (b: Pick<Brick, "part"> & { color: { hex: string } }) => `${b.part}-${b.color.hex}`;
@@ -20,7 +21,7 @@ function tally(bricks: Brick[]): PartLine[] {
     const k = partKey(b);
     const line = map.get(k);
     if (line) line.qty++;
-    else map.set(k, { key: k, part: b.part, w: b.w, l: b.l, hex: b.color.hex, colorName: b.color.name, qty: 1 });
+    else map.set(k, { key: k, part: b.part, w: b.w, l: b.l, hex: b.color.hex, colorName: b.color.name, qty: 1, slope: !!b.slope });
   }
   return [...map.values()].sort((a, b) => b.w * b.l - a.w * a.l || b.qty - a.qty);
 }
@@ -33,6 +34,9 @@ export function stepParts(build: Build, step: Step): PartLine[] {
 export function inventory(build: Build): PartLine[] {
   return tally(build.bricks);
 }
+
+/** "Red 2×2 slope" — what a part line shows in alt text. */
+export const partLabel = (p: PartLine) => `${p.colorName} ${p.w}×${p.l} ${p.slope ? "slope" : "brick"}`;
 
 export function paginate<T>(items: T[], perPage = STEPS_PER_PAGE): T[][] {
   const pages: T[][] = [];

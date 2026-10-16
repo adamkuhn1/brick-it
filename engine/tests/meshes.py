@@ -59,3 +59,9 @@ def car(yaw_degrees=35):
     m = trimesh.util.concatenate(parts)
     m.apply_transform(trimesh.transformations.rotation_matrix(np.radians(yaw_degrees), [0, 0, 1]))
     return m
+
+
+def pyramid(rgb=(200, 120, 40)):
+    """Square pyramid with 45-degree faces (each face leans toward +-x or +-y)."""
+    pts = np.array([[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0, 0, 1.0]])
+    return colored(trimesh.convex.convex_hull(pts), rgb)

@@ -6,6 +6,9 @@ export interface BrickColor {
   hex: string;
 }
 
+/** Direction (engine axes) the low side of a 45° slope brick faces. */
+export type SlopeDir = "+x" | "-x" | "+y" | "-y";
+
 export interface Brick {
   id: number;
   part: string;
@@ -17,6 +20,8 @@ export interface Brick {
   rot: 0 | 90;
   color: BrickColor;
   hidden: boolean;
+  /** null for a plain brick; set for Slope 45 parts (3040, 3039). 2 studs deep along it. */
+  slope: SlopeDir | null;
 }
 
 export interface Step {

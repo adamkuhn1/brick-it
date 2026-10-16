@@ -18,7 +18,7 @@ Runs entirely on the user's machine (clone repo, run setup, open in browser). No
 
 ## 2. Non-goals (MVP)
 
-- Plates, slopes, or any non-brick parts (grid is designed to allow plates later).
+- Plates or other non-brick parts beyond the two 45° slopes (3040, 3039). The grid is designed to allow plates later.
 - 3D "build mode" that animates steps inside the viewer.
 - Desktop app packaging, browser-only model inference.
 - Buy button / cart integration (MVP only exports the BrickLink Wanted List file).
@@ -54,7 +54,7 @@ lego/
   "bricks": [
     { "id": 0, "part": "3001", "w": 2, "l": 4, "x": 0, "y": 0, "z": 0,
       "rot": 0, "color": { "bricklink": 5, "ldraw": 4, "name": "Red", "hex": "#C91A09" },
-      "hidden": false }
+      "hidden": false, "slope": null }
   ],
   "steps": [ { "n": 1, "brick_ids": [0, 1, 2] } ],
   "parts": [ { "part": "3001", "color_bricklink": 5, "qty": 12 } ],
@@ -63,7 +63,7 @@ lego/
 }
 ```
 
-Coordinates: `x`,`y` in studs, `z` in **plate units** (1 brick = 3 plates; MVP always uses multiples of 3). `rot` is 0 or 90.
+Coordinates: `x`,`y` in studs, `z` in **plate units** (1 brick = 3 plates; MVP always uses multiples of 3). `rot` is 0 or 90. `slope` is `null` for a plain brick; for a Slope 45 part (3040 2×1, 3039 2×2) it is the engine direction its low side faces (`"+x"`, `"-x"`, `"+y"`, `"-y"`), and the footprint is 2 studs deep along that axis. Only the back row has studs.
 
 ## 4. Engine pipeline
 
