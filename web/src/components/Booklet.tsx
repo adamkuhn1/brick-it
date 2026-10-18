@@ -28,7 +28,7 @@ function useBookletImages(build: Build, create: (b: Build) => BookletRenderer) {
     (async () => {
       const jobs: [string, () => Promise<string>][] = [
         ["cover", () => r.cover()],
-        ...parts.map((p): [string, () => Promise<string>] => [p.key, () => r.part(p.part, p.hex, p.w, p.l, p.slope)]),
+        ...parts.map((p): [string, () => Promise<string>] => [p.key, () => r.part(p.part, p.hex, p.w, p.l, p.slope, p.inverted)]),
         ...build.steps.map((s): [string, () => Promise<string>] => [`step-${s.n}`, () => r.step(s.n)]),
       ];
       let batch: Images = {};

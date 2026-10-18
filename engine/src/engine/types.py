@@ -39,6 +39,9 @@ class Brick:
     # 2x2 corner slope (3045), two directions: "+x+y", "+x-y", "-x+y" or "-x-y"; its one stud
     # is on the opposite corner.
     slope: str | None = None
+    # True for an inverted slope (3665, 3660): `slope` is still the side its low edge faces,
+    # but the slope is on the underside and the whole top has studs.
+    slope_inverted: bool = False
 
     @property
     def layer(self) -> int:
@@ -95,7 +98,7 @@ class Build:
                 {
                     "id": b.id, "part": b.part, "w": b.w, "l": b.l, "x": b.x, "y": b.y, "z": b.z,
                     "rot": b.rot, "color": PALETTE[b.color].to_json(), "hidden": b.hidden,
-                    "slope": b.slope,
+                    "slope": b.slope, "slope_inverted": b.slope_inverted,
                 }
                 for b in self.bricks
             ],

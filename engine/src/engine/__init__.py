@@ -39,9 +39,9 @@ def build(
         # Make room for slopes on sloped edges, then repair again: the re-tiling can leave a
         # single-stud joint nearby. Supports were all added by the first pass.
         supports = [w for w in warnings if w.startswith("Added")]
-        bricks, warnings = repair(make_room(bricks, grid, vox.tilt), grid)
+        bricks, warnings = repair(make_room(bricks, grid, vox.tilt, vox.tilt_down), grid)
         warnings = supports + warnings
-        bricks = add_slopes(bricks, vox.tilt, grid.shape)
+        bricks = add_slopes(bricks, vox.tilt, grid.shape, vox.tilt_down)
     steps = plan_steps(bricks)
     if len(bricks) > MAX_BRICKS_WARNING:
         warnings.append(f"{len(bricks)} bricks — that's a big build. Try a smaller size.")

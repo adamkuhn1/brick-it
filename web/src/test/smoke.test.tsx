@@ -173,6 +173,48 @@ describe("slope bricks", () => {
     expect(s.group.children.filter((c) => c instanceof THREE.InstancedMesh).length).toBe(2);
   });
 
+  // Lowest body point along world x: the underside of the part there.
+  const bottomAt = (g: THREE.BufferGeometry, x: number) => {
+    const pos = g.attributes.position;
+    let lo = Infinity;
+    for (let i = 0; i < pos.count; i++) if (Math.abs(pos.getX(i) - x) < 0.02) lo = Math.min(lo, pos.getY(i));
+    return lo;
+  };
+
+  it("draws an inverted slope as a flipped wedge: flat top, underside rising on the side it faces", () => {
+    const brick = top(brickGeometry(2, 2));
+    for (const [dir, front] of [["+x", 1], ["-x", -1]] as const) {
+      const g = brickGeometry(2, 2, dir, true);
+      const box = top(g);
+      expect(box.min.x).toBeCloseTo(brick.min.x, 3);
+      expect(box.max.x).toBeCloseTo(brick.max.x, 3);
+      expect(box.max.y).toBeCloseTo(brick.max.y, 3); // studs on top, full height
+      const edge = front * (1 - 0.0125);
+      expect(heightAt(g, edge)).toBeCloseTo(heightAt(g, -edge), 3); // flat top front to back
+      expect(bottomAt(g, -edge)).toBeCloseTo(box.min.y, 3); // back row reaches the bottom
+      expect(bottomAt(g, edge)).toBeGreaterThan(box.min.y + 0.5); // front is undercut
+    }
+  });
+
+  it("puts studs on the whole top of an inverted slope", () => {
+    const xs = (g: THREE.BufferGeometry) => {
+      const pos = g.attributes.position;
+      const out = new Set<number>();
+      for (let i = 0; i < pos.count; i++) if (pos.getY(i) > BRICK_H / 2 + 0.1) out.add(Math.sign(pos.getX(i)));
+      return out;
+    };
+    expect(xs(brickGeometry(2, 1, "+x", true))).toEqual(new Set([1, -1]));
+    expect(xs(brickGeometry(2, 1, "+x"))).toEqual(new Set([-1]));
+  });
+
+  it("instances inverted slopes separately from slopes facing the same way", () => {
+    const b = build.bricks[0];
+    const bricks = [{ ...b, part: "3040", slope: "+y" as const }, { ...b, id: 1, x: b.x + 3, part: "3665", slope: "+y" as const, slope_inverted: true }];
+    const s = buildBrickScene({ ...build, bricks, steps: [{ n: 1, brick_ids: [0, 1] }] }, [0, 1], new THREE.MeshBasicMaterial(), true);
+    expect(s.group.children.filter((c) => c instanceof THREE.InstancedMesh).length).toBe(2);
+    expect(brickEdges(1, 2, "+y", true)).not.toEqual(brickEdges(1, 2, "+y"));
+  });
+
   it("instances corner slopes separately and outlines them", () => {
     const b = { ...build.bricks[0], w: 2, l: 2 };
     const bricks = [{ ...b, part: "3003", slope: null }, { ...b, id: 1, x: b.x + 3, part: "3039", slope: "+x" as const },

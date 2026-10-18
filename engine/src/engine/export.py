@@ -17,13 +17,14 @@ PART_NAMES = {
     "3009": "Brick 1 x 6", "3008": "Brick 1 x 8", "3003": "Brick 2 x 2", "3002": "Brick 2 x 3",
     "3001": "Brick 2 x 4", "2456": "Brick 2 x 6", "3007": "Brick 2 x 8",
     "3040": "Slope 45 2 x 1", "3039": "Slope 45 2 x 2", "3045": "Slope 45 2 x 2 Double Convex",
+    "3665": "Slope 45 2 x 1 Inverted", "3660": "Slope 45 2 x 2 Inverted",
 }
 
 # Rough average used-market prices (USD) per piece. Labelled as an estimate in the UI.
 PRICE_USD = {
     "3005": 0.06, "3004": 0.07, "3622": 0.09, "3010": 0.10, "3009": 0.15, "3008": 0.20,
     "3003": 0.09, "3002": 0.12, "3001": 0.14, "2456": 0.25, "3007": 0.30,
-    "3040": 0.07, "3039": 0.10, "3045": 0.12,
+    "3040": 0.07, "3039": 0.10, "3045": 0.12, "3665": 0.08, "3660": 0.12,
 }
 
 # Rotations about the vertical (LDraw Y) axis, as LDraw's row-major 3x3.
@@ -32,6 +33,8 @@ _R180, _R270 = "-1 0 0 0 1 0 0 0 -1", "0 0 1 0 1 0 -1 0 0"
 
 # Engine y maps to LDraw Z. Straight slopes (3040, 3039) face -Z with their origin over the
 # back stud row: the footprint runs z = -30..10, so its centre is at (0, -10) from the origin.
+# The inverted slopes 3665 (2x1) and 3660 (2x2) are laid out the same way in their .dat
+# files (3665a/3660a): the underside rises from the back row toward -Z, to a lip at the top.
 # The corner slope 3045 faces +X and -Z (engine "+x-y") with its one stud at the origin: the
 # footprint runs x = -10..30, z = -30..10, so its centre is at (10, -10).
 # Rotation that turns each part toward each engine facing:
@@ -39,7 +42,8 @@ SLOPE_ROT = {
     "-y": _R0, "+y": _R180, "+x": _R90, "-x": _R270,
     "+x-y": _R0, "-x+y": _R180, "+x+y": _R90, "-x-y": _R270,
 }
-SLOPE_CENTRE = {"3040": (0, -10), "3039": (0, -10), "3045": (10, -10)}  # (x, z) in part space
+SLOPE_CENTRE = {"3040": (0, -10), "3039": (0, -10), "3665": (0, -10), "3660": (0, -10),
+                "3045": (10, -10)}  # (x, z) in part space
 
 
 def estimate_cost(bricks: list[Brick]) -> float:

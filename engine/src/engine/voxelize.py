@@ -6,7 +6,8 @@ squash Z by 1.2 so every grid unit is one stud (x, y) or one brick (z).
 
 Occupancy comes from dense surface sampling (robust to non-watertight meshes) followed by
 3D hole filling. Surface samples also carry the color, interpolated from vertex colors, and
-the face normal, which records where the surface leans like a 45-degree roof (for slopes).
+the face normal, which records where the surface leans like a 45-degree roof, or like the
+underside of one (for slopes and inverted slopes).
 """
 
 from __future__ import annotations
@@ -30,6 +31,10 @@ class Voxels:
     # float32 [X, Y, Z, 2]: per voxel, the summed horizontal direction of surface samples that
     # lean like a slope, divided by the voxel's sample count. ~0 on flat tops and walls.
     tilt: np.ndarray | None = None
+    # The same for undersides: samples whose normal points 20-70 degrees below horizontal
+    # (a car's front underside, the bottom of a ball). Direction is where the normal points
+    # horizontally, so an underside facing down and toward +x leans +x.
+    tilt_down: np.ndarray | None = None
 
 
 # A surface sample "leans" when its normal is 20-70 degrees from straight up. Flat tops and
@@ -167,13 +172,14 @@ def voxelize(
         avg = (total[hit] / count[hit, None]).round().astype(np.uint8)
         rgb.reshape(-1, 3)[hit] = avg
 
+    normals = mesh.face_normals[face_idx]
     return Voxels(occ=occ, rgb=rgb, surface=surface, has_color=has_color,
-                  tilt=_tilt(mesh.face_normals[face_idx], idx, dims))
+                  tilt=_tilt(normals, idx, dims), tilt_down=_tilt(normals, idx, dims, down=True))
 
 
-def _tilt(normals: np.ndarray, idx: np.ndarray, dims) -> np.ndarray:
+def _tilt(normals: np.ndarray, idx: np.ndarray, dims, down: bool = False) -> np.ndarray:
     flat = np.ravel_multi_index(idx.T, dims)
-    nz = normals[:, 2]
+    nz = -normals[:, 2] if down else normals[:, 2]
     leaning = (nz > TILT_NZ[0]) & (nz < TILT_NZ[1])
     h = normals[:, :2]
     h = h / np.maximum(np.linalg.norm(h, axis=1, keepdims=True), 1e-9)

@@ -29,6 +29,11 @@ export interface Brick {
    * its one stud is on the opposite corner.
    */
   slope: SlopeDir | null;
+  /**
+   * True for an inverted slope (3665 2×1, 3660 2×2): the slope is on the underside, `slope`
+   * is the side its low edge faces, and the whole top has studs.
+   */
+  slope_inverted: boolean;
 }
 
 export interface Step {

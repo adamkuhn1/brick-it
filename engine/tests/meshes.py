@@ -65,3 +65,10 @@ def pyramid(rgb=(200, 120, 40)):
     """Square pyramid with 45-degree faces (each face leans toward +-x or +-y)."""
     pts = np.array([[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0, 0, 1.0]])
     return colored(trimesh.convex.convex_hull(pts), rgb)
+
+
+def upside_down_pyramid(rgb=(200, 120, 40)):
+    """The pyramid on its tip: every face is an underside leaning toward +-x or +-y."""
+    m = pyramid(rgb)
+    m.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1, 0, 0]))
+    return m
