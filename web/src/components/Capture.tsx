@@ -3,6 +3,15 @@ import { health, uploadFile, type MeshResponse } from "../api";
 
 const ACCEPT = "image/jpeg,image/png,image/webp,.glb,.gltf,.obj,.ply,.stl";
 
+// A bundled TripoSR mesh, so anyone can try the app without installing the model.
+export const SAMPLE_URL = "/samples/chair.glb";
+
+async function loadSample(): Promise<File> {
+  const res = await fetch(SAMPLE_URL);
+  if (!res.ok) throw new Error("Couldn't load the sample model. Try uploading a file instead.");
+  return new File([await res.blob()], "chair.glb", { type: "model/gltf-binary" });
+}
+
 interface Props {
   onUploaded: (res: MeshResponse) => void;
   initialError?: string | null;
@@ -64,12 +73,12 @@ export default function Capture({ onUploaded, initialError = null }: Props) {
       .catch(() => setError("Can't reach the local server. Start it with ./scripts/dev.sh."));
   }, []);
 
-  async function send(file: File) {
+  async function send(file: File | (() => Promise<File>)) {
     setBusy(true);
     setError(null);
     setCamera(false);
     try {
-      onUploaded(await uploadFile(file));
+      onUploaded(await uploadFile(typeof file === "function" ? await file() : file));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -138,6 +147,9 @@ export default function Capture({ onUploaded, initialError = null }: Props) {
             <button className="btn" onClick={() => setCamera(true)} disabled={busy || model?.ok === false}>
               Use camera
             </button>
+            <button className="btn" onClick={() => send(loadSample)} disabled={busy}>
+              Try a sample
+            </button>
           </div>
           <p className="muted small">JPG or PNG. You can also drop a .glb or .obj 3D model.</p>
           <input
@@ -156,7 +168,8 @@ export default function Capture({ onUploaded, initialError = null }: Props) {
 
       {model && !model.ok && (
         <p className="note">
-          Photo-to-3D isn't set up on this machine ({model.reason}) You can still upload a .glb or .obj model.
+          Photo-to-3D isn't set up on this machine ({model.reason}) You can still upload a .glb or .obj model, or
+          press Try a sample.
         </p>
       )}
       {error && (

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { inventory, paginate, stepParts } from "../booklet";
 import Booklet from "../components/Booklet";
+import Capture, { SAMPLE_URL } from "../components/Capture";
 import StepScrubber from "../components/StepScrubber";
 import { BRICK_H, brickEdges, brickGeometry, buildBrickScene, stepAt, stepOrder } from "../three/bricks";
 import * as THREE from "three";
@@ -222,6 +223,29 @@ describe("slope bricks", () => {
     const s = buildBrickScene({ ...build, bricks, steps: [{ n: 1, brick_ids: [0, 1, 2] }] }, [0, 1, 2], new THREE.MeshBasicMaterial(), true);
     expect(s.group.children.filter((c) => c instanceof THREE.InstancedMesh).length).toBe(3);
     expect(brickEdges(2, 2, "-x+y").length).toBeGreaterThan(0);
+  });
+});
+
+describe("try a sample", () => {
+  it("uploads the bundled sample mesh without a photo", async () => {
+    const calls: { url: string; body?: unknown }[] = [];
+    const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body });
+      if (url === "/api/health") return ok({ model_available: false, model_reason: "no weights." });
+      if (url === SAMPLE_URL) return new Response(new Blob([new Uint8Array([1, 2, 3])]));
+      return ok({ mesh_id: "a".repeat(64), status: "done", error: null });
+    }));
+    const onUploaded = vi.fn();
+    render(<Capture onUploaded={onUploaded} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Try a sample" }));
+    });
+    const upload = calls.find((c) => c.url === "/api/meshes");
+    expect(upload).toBeTruthy();
+    expect(((upload!.body as FormData).get("file") as File).name).toBe("chair.glb");
+    expect(onUploaded).toHaveBeenCalledWith({ mesh_id: "a".repeat(64), status: "done", error: null });
+    vi.unstubAllGlobals();
   });
 });
 
