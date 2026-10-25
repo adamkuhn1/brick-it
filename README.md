@@ -29,7 +29,7 @@ To skip the model install, run `./scripts/setup.sh --no-model`. You can still dr
 
 **Photo tips:** use one object on a plain background, shot from slightly above at an angle. Very small, blank, or blurry photos are rejected before the model runs.
 
-On an 8 GB M2 MacBook Air, TripoSR takes about 30 s per photo on the GPU (MPS) and peaks at roughly 2 GB of memory. The brick engine takes under 1 s at 32 studs and up to about 5 s at the 48-stud maximum. Results are cached by image hash, so moving the size slider only reruns the engine.
+On an 8 GB M2 MacBook Air, TripoSR takes about 30 s per photo on the GPU (MPS) and peaks at roughly 2 GB of memory. The brick engine takes about 1.5 s at 32 studs and about 5 s at the 48-stud maximum (see [Performance](#performance)). Results are cached by image hash, so moving the size slider only reruns the engine.
 
 ## Tests
 
@@ -38,6 +38,37 @@ uv run pytest                 # engine + server (fast)
 uv run pytest -m slow         # also runs real TripoSR on a sample photo
 cd web && npm test && npm run typecheck
 ```
+
+## Performance
+
+`scripts/bench.py` times each engine stage on two meshes: the `chair.glb` test fixture (a real model, and one with plenty of slopes) and a synthetic car turned 35° like a ¾-view photo.
+
+```bash
+uv run python scripts/bench.py                          # 8, 16, 32 studs, median of 3 runs
+uv run python scripts/bench.py --sizes 8 16 32 48 --repeats 5
+```
+
+Measured on an 8 GB M2 MacBook Air, Python 3.11, median of 5 runs. Times are in milliseconds.
+
+| Mesh | Studs | voxelize | colorize | hollow | layout | repair | slopes | steps | export | **Total** | Bricks |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| chair.glb | 8 | 37 | 2.0 | 0.0 | 8.5 | 3.6 | 11 | 1.7 | 0.2 | **64** | 83 |
+| chair.glb | 16 | 53 | 7.8 | 0.2 | 42 | 42 | 69 | 13 | 0.5 | **230** | 365 |
+| chair.glb | 32 | 141 | 29 | 0.5 | 191 | 319 | 639 | 98 | 1.7 | **1416** | 1572 |
+| car (synthetic) | 8 | 12 | 0.8 | 0.0 | 1.9 | 1.7 | 1.0 | 0.3 | 0.1 | **18** | 17 |
+| car (synthetic) | 16 | 14 | 2.7 | 0.1 | 9.8 | 1.7 | 1.9 | 0.7 | 0.1 | **30** | 42 |
+| car (synthetic) | 32 | 57 | 12 | 0.2 | 67 | 11 | 12 | 9.4 | 0.4 | **172** | 264 |
+
+At 48 studs the chair takes about 5.3 s (3,813 bricks) and the car about 0.4 s.
+
+What the numbers show:
+
+- **Cost follows brick count, not stud count.** The chair at 32 studs has six times the bricks of the car and takes eight times as long.
+- **At small sizes, voxelize dominates.** Dense surface sampling is a fixed cost that doesn't shrink much with the grid, so it is more than half the total at 8 studs.
+- **At large sizes, structure work dominates.** On the chair at 32 studs, `repair` plus `slopes` take two-thirds of the time. The `slopes` column includes making room for slopes and the second repair pass that follows, and it grows fastest: about ×9 from 16 to 32 studs, against ×4 for bricks. That is where to look first for a speed-up.
+- `hollow` and `export` are negligible at every size.
+
+`engine/tests/test_bench.py` checks that the timed pipeline produces exactly the same build as `engine.build`, so the benchmark can't silently drift from the real code.
 
 ## Layout
 
