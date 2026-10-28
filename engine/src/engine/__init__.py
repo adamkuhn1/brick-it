@@ -12,7 +12,7 @@ from .hollow import hollow
 from .layout import layout
 from .slopes import add_slopes, make_room
 from .steps import plan_steps
-from .structure import components, repair
+from .structure import components, repair, weak_joints
 from .types import Brick, Build, Step
 from .voxelize import voxelize
 
@@ -37,9 +37,11 @@ def build(
     bricks, warnings = repair(layout(grid), grid)
     if vox.tilt is not None and len(components(bricks, grid.shape)) == 1:
         # Make room for slopes on sloped edges, then repair again: the re-tiling can leave a
-        # single-stud joint nearby. Supports were all added by the first pass.
+        # single-stud joint nearby. Supports were all added by the first pass, and the
+        # second pass skips weak joints the first one already failed to fix.
         supports = [w for w in warnings if w.startswith("Added")]
-        bricks, warnings = repair(make_room(bricks, grid, vox.tilt, vox.tilt_down), grid)
+        known = weak_joints(bricks, grid.shape)
+        bricks, warnings = repair(make_room(bricks, grid, vox.tilt, vox.tilt_down), grid, known)
         warnings = supports + warnings
         bricks = add_slopes(bricks, vox.tilt, grid.shape, vox.tilt_down)
     steps = plan_steps(bricks)

@@ -70,6 +70,12 @@ def components(bricks: list[Brick], shape=None, adj=None) -> list[set[int]]:
 
 def weak_bridges(adj: dict[int, dict[int, int]]) -> list[tuple[int, int]]:
     """Cut edges with 1-stud overlap whose removal splits off more than one brick."""
+    return _weak_bridges(adj)[0]
+
+
+def _weak_bridges(adj: dict[int, dict[int, int]]) -> tuple[list[tuple[int, int]], int]:
+    """weak_bridges plus the number of components, from the same depth-first pass."""
+    n_comps = 0
     index: dict[int, int] = {}
     low: dict[int, int] = {}
     size: dict[int, int] = {}
@@ -78,6 +84,7 @@ def weak_bridges(adj: dict[int, dict[int, int]]) -> list[tuple[int, int]]:
     for root in adj:
         if root in index:
             continue
+        n_comps += 1
         index[root] = low[root] = counter
         counter += 1
         size[root] = 1
@@ -109,7 +116,20 @@ def weak_bridges(adj: dict[int, dict[int, int]]) -> list[tuple[int, int]]:
         for a, b, s in cuts:
             if adj[a][b] == 1 and min(s, comp_size - s) > 1:
                 result.append((a, b))
-    return result
+    return result, n_comps
+
+
+def _footprint(b: Brick) -> tuple[int, int, int, int, int]:
+    return b.layer, b.x, b.y, b.size_x, b.size_y
+
+
+def weak_joints(bricks: list[Brick], shape) -> frozenset:
+    """The weak bridges of a build, each named by its two bricks' footprints (ids change
+    whenever a stage renumbers bricks; footprints don't). Pass the result of one repair
+    to the next as `skip` so it doesn't retry joints the first one couldn't fix."""
+    by_id = {b.id: b for b in bricks}
+    return frozenset(frozenset((_footprint(by_id[a]), _footprint(by_id[b])))
+                     for a, b in weak_bridges(adjacency(bricks, shape)))
 
 
 def _shape(bricks: list[Brick]) -> tuple[int, int, int]:
@@ -122,14 +142,54 @@ def _shape(bricks: list[Brick]) -> tuple[int, int, int]:
 # ---------- local re-tiling ----------
 
 class _State:
-    def __init__(self, bricks: list[Brick], grid: np.ndarray):
+    """Bricks being re-tiled, with an id map and (with `graph`) an adjacency kept current.
+
+    The adjacency equals `adjacency(self.list(), shape)` at all times, including dict order:
+    nodes in brick order, each node's neighbours by (layer, id). The searches in repair walk
+    it in that order, so keeping it identical keeps repair's choices identical while saving
+    a full rebuild for every trial re-tile.
+    """
+
+    def __init__(self, bricks: list[Brick], grid: np.ndarray, graph: bool = False):
         self.grid = grid.copy()
         self.bricks: dict[int, Brick] = {b.id: b for b in bricks}
         self.next_id = max(self.bricks, default=-1) + 1
         self.ids = id_map(bricks, grid.shape)
+        self.adj = adjacency(bricks, grid.shape) if graph else None
 
     def list(self) -> list[Brick]:
         return list(self.bricks.values())
+
+    def _add(self, bricks: list[Brick]) -> None:
+        """Register bricks already drawn into self.ids and link them into the graph."""
+        for b in bricks:
+            self.bricks[b.id] = b
+        if self.adj is None:
+            return
+        Z = self.ids.shape[2]
+        touched = set()
+        for b in bricks:
+            z = b.layer
+            nbrs: dict[int, int] = {}
+            for zz in (z - 1, z + 1):  # below first, then above: (layer, id) order
+                if 0 <= zz < Z:
+                    cells = self.ids[b.x:b.x + b.size_x, b.y:b.y + b.size_y, zz]
+                    found, counts = np.unique(cells[cells >= 0], return_counts=True)
+                    for m, c in zip(found.tolist(), counts.tolist()):
+                        nbrs[m] = c
+                        self.adj[m][b.id] = c
+                        touched.add(m)
+            self.adj[b.id] = nbrs
+        key = lambda kv: (self.bricks[kv[0]].layer, kv[0])  # noqa: E731
+        for m in touched:
+            self.adj[m] = dict(sorted(self.adj[m].items(), key=key))
+
+    def _remove(self, bricks: list[Brick]) -> None:
+        for b in bricks:
+            del self.bricks[b.id]
+            if self.adj is not None:
+                for m in self.adj.pop(b.id):
+                    del self.adj[m][b.id]
 
     def force(self, z: int, x: int, y: int, sx: int, sy: int) -> list[int] | None:
         """Place a brick at (x, y, layer z), re-tiling whatever it displaces. Returns undo info."""
@@ -155,7 +215,7 @@ class _State:
         freed = np.zeros(layer_ids.shape, bool)
         for b in old:
             freed[b.x:b.x + b.size_x, b.y:b.y + b.size_y] = True
-            del self.bricks[b.id]
+        self._remove(old)
         freed[x:x + sx, y:y + sy] = False
 
         w, l = key
@@ -175,20 +235,20 @@ class _State:
         for b in old:
             layer_ids[b.x:b.x + b.size_x, b.y:b.y + b.size_y] = -1
         for b in new:
-            self.bricks[b.id] = b
             layer_ids[b.x:b.x + b.size_x, b.y:b.y + b.size_y] = b.id
+        self._add(new)
         self._undo = (z, old, new)
         return [b.id for b in new]
 
     def undo(self) -> None:
         z, old, new = self._undo
         layer_ids = self.ids[:, :, z]
+        self._remove(new)
         for b in new:
-            del self.bricks[b.id]
             layer_ids[b.x:b.x + b.size_x, b.y:b.y + b.size_y] = -1
         for b in old:
-            self.bricks[b.id] = b
             layer_ids[b.x:b.x + b.size_x, b.y:b.y + b.size_y] = b.id
+        self._add(old)
 
     def add_support(self, x: int, y: int, z_from: int) -> int:
         """1x1 support column downward from layer z_from-1 until it lands on something."""
@@ -198,8 +258,8 @@ class _State:
             b = Brick(id=self.next_id, part=PARTS[(1, 1)], w=1, l=1, x=x, y=y,
                       z=z * PLATES_PER_BRICK, rot=0, color=DEFAULT_COLOR, hidden=False)
             self.next_id += 1
-            self.bricks[b.id] = b
             self.ids[x, y, z] = b.id
+            self._add([b])
             self.grid[x, y, z] = DONT_CARE
             added += 1
             z -= 1
@@ -247,7 +307,7 @@ def _cells(state: _State, comp: set[int]) -> set[tuple[int, int, int]]:
 
 def _connect(state: _State, shape) -> tuple[bool, int]:
     """Try to reduce the number of components by one. Returns (changed, supports_added)."""
-    comps = components(state.list(), shape)
+    comps = components(state.list(), adj=state.adj)
     if len(comps) <= 1:
         return False, 0
     main_cells = _cells(state, comps[0])
@@ -256,7 +316,7 @@ def _connect(state: _State, shape) -> tuple[bool, int]:
         for rect in _joint_rects(state, cells, main_cells):
             if state.force(*rect) is None:
                 continue
-            if len(components(state.list(), shape)) < len(comps):
+            if len(components(state.list(), adj=state.adj)) < len(comps):
                 return True, 0
             state.undo()
     # No joint fix worked: drop a support column under the lowest brick of the smallest
@@ -273,16 +333,18 @@ def _connect(state: _State, shape) -> tuple[bool, int]:
     return False, 0
 
 
-def _strengthen(state: _State, shape, tried: set) -> bool:
-    adj = adjacency(state.list(), shape)
-    before = len(weak_bridges(adj))
+def _strengthen(state: _State, tried: set, skip: frozenset) -> bool:
+    bridges = weak_bridges(state.adj)
+    before = len(bridges)
     if before == 0:
         return False
-    for a, b in weak_bridges(adj):
+    for a, b in bridges:
         if (a, b) in tried:
             continue
         tried.add((a, b))
         ba, bb = state.bricks[a], state.bricks[b]
+        if frozenset((_footprint(ba), _footprint(bb))) in skip:
+            continue
         upper, lower = (ba, bb) if ba.layer > bb.layer else (bb, ba)
         shared = set(upper.cells()) & set(lower.cells())
         (sx_, sy_), = shared
@@ -293,10 +355,8 @@ def _strengthen(state: _State, shape, tried: set) -> bool:
                     for y0 in range(sy_ - sy + 1, sy_ + 1):
                         if state.force(z, x0, y0, sx, sy) is None:
                             continue
-                        new_adj = adjacency(state.list(), shape)
-                        if len(components(state.list(), shape, new_adj)) == 1 and len(
-                            weak_bridges(new_adj)
-                        ) < before:
+                        after, n_comps = _weak_bridges(state.adj)
+                        if n_comps == 1 and len(after) < before:
                             return True
                         state.undo()
     return False
@@ -323,9 +383,12 @@ def com_warning(bricks: list[Brick]) -> str | None:
     return None if inside else "Center of mass is outside the base; model may tip."
 
 
-def repair(bricks: list[Brick], grid: np.ndarray) -> tuple[list[Brick], list[str]]:
+def repair(bricks: list[Brick], grid: np.ndarray,
+           skip: frozenset = frozenset()) -> tuple[list[Brick], list[str]]:
+    """Join loose parts and strengthen single-stud joints. `skip`: weak joints (from
+    `weak_joints`) an earlier repair already failed to fix; they're left alone."""
     shape = grid.shape
-    state = _State(bricks, grid)
+    state = _State(bricks, grid, graph=True)
     supports = 0
     tried: set = set()
     for _ in range(MAX_ITER):
@@ -333,17 +396,16 @@ def repair(bricks: list[Brick], grid: np.ndarray) -> tuple[list[Brick], list[str
         supports += added
         if changed:
             continue
-        if not _strengthen(state, shape, tried):
+        if not _strengthen(state, tried, skip):
             break
 
     # Leftover specks of 1-2 bricks that couldn't be joined are image-to-3D noise; a real set
     # never ships a loose 1x1. Bigger leftovers stay and get a warning.
     dropped = 0
-    comps = components(state.list(), shape)
+    comps = components(state.list(), adj=state.adj)
     for comp in comps[1:]:
         if len(comp) <= MAX_DROP:
-            for i in comp:
-                del state.bricks[i]
+            state._remove([state.bricks[i] for i in comp])
             dropped += len(comp)
 
     out = sorted(state.list(), key=lambda b: (b.layer, b.x, b.y))
@@ -365,4 +427,5 @@ def repair(bricks: list[Brick], grid: np.ndarray) -> tuple[list[Brick], list[str
     return out, warnings
 
 
-__all__ = ["repair", "components", "adjacency", "weak_bridges", "com_warning", "id_map"]
+__all__ = ["repair", "components", "adjacency", "weak_bridges", "weak_joints", "com_warning",
+           "id_map"]

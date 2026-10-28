@@ -29,7 +29,7 @@ To skip the model install, run `./scripts/setup.sh --no-model`. You can still dr
 
 **Photo tips:** use one object on a plain background, shot from slightly above at an angle. Very small, blank, or blurry photos are rejected before the model runs.
 
-On an 8 GB M2 MacBook Air, TripoSR takes about 30 s per photo on the GPU (MPS) and peaks at roughly 2 GB of memory. The brick engine takes about 1.5 s at 32 studs and about 5 s at the 48-stud maximum (see [Performance](#performance)). Results are cached by image hash, so moving the size slider only reruns the engine.
+On an 8 GB M2 MacBook Air, TripoSR takes about 30 s per photo on the GPU (MPS) and peaks at roughly 2 GB of memory. The brick engine takes about 0.8 s at 32 studs and about 2.3 s at the 48-stud maximum (see [Performance](#performance)). Results are cached by image hash, so moving the size slider only reruns the engine.
 
 ## Tests
 
@@ -52,21 +52,38 @@ Measured on an 8 GB M2 MacBook Air, Python 3.11, median of 5 runs. Times are in 
 
 | Mesh | Studs | voxelize | colorize | hollow | layout | repair | slopes | steps | export | **Total** | Bricks |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| chair.glb | 8 | 37 | 2.0 | 0.0 | 8.5 | 3.6 | 11 | 1.7 | 0.2 | **64** | 83 |
-| chair.glb | 16 | 53 | 7.8 | 0.2 | 42 | 42 | 69 | 13 | 0.5 | **230** | 365 |
-| chair.glb | 32 | 141 | 29 | 0.5 | 191 | 319 | 639 | 98 | 1.7 | **1416** | 1572 |
-| car (synthetic) | 8 | 12 | 0.8 | 0.0 | 1.9 | 1.7 | 1.0 | 0.3 | 0.1 | **18** | 17 |
-| car (synthetic) | 16 | 14 | 2.7 | 0.1 | 9.8 | 1.7 | 1.9 | 0.7 | 0.1 | **30** | 42 |
-| car (synthetic) | 32 | 57 | 12 | 0.2 | 67 | 11 | 12 | 9.4 | 0.4 | **172** | 264 |
-
-At 48 studs the chair takes about 5.3 s (3,813 bricks) and the car about 0.4 s.
+| chair.glb | 8 | 34 | 1.8 | 0.0 | 7.8 | 2.0 | 7.9 | 1.6 | 0.1 | **55** | 83 |
+| chair.glb | 16 | 48 | 6.9 | 0.1 | 38 | 14 | 48 | 12 | 0.4 | **168** | 365 |
+| chair.glb | 32 | 126 | 28 | 0.5 | 175 | 77 | 297 | 91 | 1.5 | **798** | 1572 |
+| chair.glb | 48 | 279 | 69 | 1.3 | 457 | 292 | 778 | 354 | 3.6 | **2270** | 3813 |
+| car (synthetic) | 8 | 11 | 0.7 | 0.0 | 1.7 | 1.1 | 0.8 | 0.3 | 0.0 | **15** | 17 |
+| car (synthetic) | 16 | 13 | 2.5 | 0.1 | 9.3 | 1.2 | 1.6 | 0.7 | 0.1 | **28** | 42 |
+| car (synthetic) | 32 | 52 | 11 | 0.1 | 53 | 5.1 | 10 | 9.0 | 0.3 | **139** | 264 |
+| car (synthetic) | 48 | 107 | 24 | 0.2 | 133 | 14 | 34 | 32 | 0.6 | **353** | 648 |
 
 What the numbers show:
 
-- **Cost follows brick count, not stud count.** The chair at 32 studs has six times the bricks of the car and takes eight times as long.
+- **Cost follows brick count, not stud count.** The chair at 48 studs has six times the bricks of the car and takes six times as long.
 - **At small sizes, voxelize dominates.** Dense surface sampling is a fixed cost that doesn't shrink much with the grid, so it is more than half the total at 8 studs.
-- **At large sizes, structure work dominates.** On the chair at 32 studs, `repair` plus `slopes` take two-thirds of the time. The `slopes` column includes making room for slopes and the second repair pass that follows, and it grows fastest: about ×9 from 16 to 32 studs, against ×4 for bricks. That is where to look first for a speed-up.
+- **At large sizes, structure work still leads, but no longer by much.** On the chair at 48 studs, `repair` plus `slopes` are under half the total. The `slopes` column includes making room for slopes and the second repair pass that follows. `layout` and `steps` (step planning) are now the next biggest stages.
 - `hollow` and `export` are negligible at every size.
+
+### Making repair incremental
+
+The first version of this table showed `slopes` growing about ×9 from 16 to 32 studs, against ×4 for bricks. Profiling (`uv run python -m cProfile scripts/bench.py --sizes 32 48`) traced it to `repair`, which runs once after layout and again inside `slopes`. Repair tries a local re-tile at each weak joint and keeps it if the build gets stronger. Every trial rebuilt the whole connection graph from scratch (a brick-id map, then a `np.unique` per layer) just to check one small change. At 48 studs that was about 9 ms per trial, over roughly 1,500 trials. Three changes fixed it:
+
+1. **The graph is kept up to date, not rebuilt.** The re-tiling state (`structure._State`) updates only the edges of the bricks a re-tile adds or removes. One depth-first pass then finds both the weak joints and the component count. A trial now costs about 2 ms.
+2. **The second repair pass skips joints the first couldn't fix.** `repair(..., skip=weak_joints(...))` names joints by brick footprint, because brick ids are renumbered between stages. That cut the second pass at 48 studs from 706 trial re-tiles to 430.
+3. **Re-tiling visits only the freed cells.** `layout_layer` used to walk every cell of the layer even when a re-tile had freed only a few. It now walks only the occupied cells, in the same order.
+
+The builds are unchanged: every brick, step and warning is identical to before for both meshes at 8, 16, 24, 32, 40 and 48 studs. The adjacency also keeps the order a full rebuild would give, so repair visits joints in the same order and makes the same choices (`test_state_graph_tracks_adjacency` checks this). Before and after, measured back to back on the same machine:
+
+| Mesh | Studs | repair before | repair after | slopes before | slopes after | **Total before** | **Total after** | Speed-up |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| chair.glb | 32 | 295 | 77 | 601 | 297 | **1328** | **798** | ×1.7 |
+| chair.glb | 48 | 1122 | 292 | 1926 | 778 | **4251** | **2270** | ×1.9 |
+| car (synthetic) | 32 | 8.3 | 5.1 | 10 | 10 | **136** | **139** | ×1.0 |
+| car (synthetic) | 48 | 23 | 14 | 68 | 34 | **386** | **353** | ×1.1 |
 
 `engine/tests/test_bench.py` checks that the timed pipeline produces exactly the same build as `engine.build`, so the benchmark can't silently drift from the real code.
 

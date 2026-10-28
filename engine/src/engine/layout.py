@@ -64,11 +64,15 @@ def layout_layer(
     cands = _candidates(prefer_x)
     bricks: list[Brick] = []
 
-    order = [(x, y) for x in range(X) for y in range(Y)] if prefer_x else [
-        (x, y) for y in range(Y) for x in range(X)
-    ]
-    for x, y in order:
-        if not occupied[x, y] or ids[x, y] >= 0:
+    # Scan order over occupied cells only: x-major when prefer_x, else y-major. During a
+    # re-tile (structure._State.force) only the few freed cells are occupied, so this skips
+    # the rest of the layer instead of visiting every cell.
+    if prefer_x:
+        xs, ys = np.nonzero(occupied)
+    else:
+        ys, xs = np.nonzero(occupied.T)
+    for x, y in zip(xs.tolist(), ys.tolist()):
+        if ids[x, y] >= 0:
             continue
         best = None
         for sx, sy, w, l, rot in cands:

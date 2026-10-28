@@ -26,7 +26,7 @@ from engine.hollow import hollow
 from engine.layout import layout
 from engine.slopes import add_slopes, make_room
 from engine.steps import plan_steps
-from engine.structure import components, repair
+from engine.structure import components, repair, weak_joints
 from engine.types import Build
 from engine.voxelize import voxelize
 
@@ -49,7 +49,8 @@ def timed_build(mesh: trimesh.Trimesh, size_studs: int, up: str = "y",
     s = clock()
     if vox.tilt is not None and len(components(bricks, grid.shape)) == 1:
         supports = [w for w in warnings if w.startswith("Added")]
-        bricks, warnings = repair(make_room(bricks, grid, vox.tilt, vox.tilt_down), grid)
+        known = weak_joints(bricks, grid.shape)
+        bricks, warnings = repair(make_room(bricks, grid, vox.tilt, vox.tilt_down), grid, known)
         warnings = supports + warnings
         bricks = add_slopes(bricks, vox.tilt, grid.shape, vox.tilt_down)
     t["slopes"] = clock() - s
