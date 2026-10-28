@@ -14,10 +14,31 @@ import trimesh
 from PIL import Image, ImageOps
 
 from .checks import InputRejected, check_image, check_mesh
-from .model import ModelUnavailable, get_model
+from .isolated import Stopped
+from .memory import GB, available_memory
+from .model import MESH_TIMEOUT, MIN_FREE_TO_START, ModelUnavailable, get_model
 
 MESH_EXTS = {".glb", ".gltf", ".obj", ".ply", ".stl"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+
+CANCELLED = "Cancelled."
+STOPPED = {
+    "memory": "Stopped turning the photo into 3D because your computer was running out of "
+              "memory. Close some apps and try again.",
+    "timeout": f"Stopped after {MESH_TIMEOUT // 60} minutes: this usually takes under a "
+               "minute. Your computer may be short on memory; close some apps and try again.",
+    "cancelled": CANCELLED,
+}
+
+
+class LowMemory(ModelUnavailable):
+    """Not enough free memory to start TripoSR without pushing the machine into swap."""
+
+    def __init__(self, free: int):
+        super().__init__(
+            f"Your computer is low on memory ({free / GB:.1f} GB free; turning a photo into 3D "
+            f"needs about {MIN_FREE_TO_START / GB:.1f} GB). Close some apps and try again, or "
+            "upload a .glb or .obj model instead.")
 
 
 @dataclass
@@ -27,13 +48,29 @@ class Job:
 
 
 class MeshStore:
-    def __init__(self, root: Path, model_factory=get_model):
+    def __init__(self, root: Path, model_factory=get_model, free_memory=available_memory):
         self.dir = root / "meshes"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.jobs: dict[str, Job] = {}
+        self.cancels: dict[str, threading.Event] = {}
         self.lock = threading.Lock()
         self.pool = ThreadPoolExecutor(max_workers=1)  # one inference at a time (8 GB budget)
         self.model_factory = model_factory
+        self.free_memory = free_memory
+
+    def _check_memory(self) -> None:
+        free = self.free_memory()
+        if free is not None and free < MIN_FREE_TO_START:
+            raise LowMemory(free)
+
+    def cancel(self, mesh_id: str) -> Job | None:
+        """Stop a queued or running photo. The running child process is killed."""
+        with self.lock:
+            event = self.cancels.get(mesh_id)
+            if event is not None:
+                event.set()
+                self.jobs[mesh_id] = Job("error", CANCELLED)
+            return self.jobs.get(mesh_id)
 
     def path(self, mesh_id: str) -> Path:
         return self.dir / f"{mesh_id}.glb"
@@ -111,22 +148,38 @@ class MeshStore:
         ok, why = self.model_factory().available()
         if not ok:
             raise ModelUnavailable(why + " You can still upload a .glb or .obj model.")
+        self._check_memory()
+        cancel = threading.Event()
         with self.lock:
             self.jobs[mesh_id] = Job("queued")
-        self.pool.submit(self._run, mesh_id, img)
+            self.cancels[mesh_id] = cancel
+        self.pool.submit(self._run, mesh_id, img, cancel)
 
-    def _run(self, mesh_id: str, img: Image.Image) -> None:
+    def _run(self, mesh_id: str, img: Image.Image, cancel: threading.Event) -> None:
         with self.lock:
+            if cancel.is_set():  # cancelled while queued
+                self._forget(mesh_id, cancel)
+                return
             self.jobs[mesh_id] = Job("running")
         try:
-            mesh = self.model_factory().image_to_mesh(img)
+            self._check_memory()  # again: other apps may have grown while this was queued
+            mesh = self.model_factory().image_to_mesh(img, cancel=cancel)
             check_mesh(mesh)
             self._save_ref(mesh_id, img)
             mesh.export(self.path(mesh_id))
             job = Job("done")
-        except InputRejected as e:
+        except (InputRejected, LowMemory) as e:
             job = Job("error", str(e))
+        except Stopped as e:
+            job = Job("error", STOPPED[e.reason])
         except Exception as e:  # model crash, OOM, etc.
             job = Job("error", f"3D generation failed ({type(e).__name__}: {e}). Try another photo.")
         with self.lock:
-            self.jobs[mesh_id] = job
+            self._forget(mesh_id, cancel)
+            if not cancel.is_set():  # a cancelled run's job already says so
+                self.jobs[mesh_id] = job
+
+    def _forget(self, mesh_id: str, cancel: threading.Event) -> None:
+        # Only this run's handle: after a cancel, a resubmit may already have queued a new one.
+        if self.cancels.get(mesh_id) is cancel:
+            del self.cancels[mesh_id]

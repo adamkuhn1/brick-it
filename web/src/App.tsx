@@ -27,6 +27,7 @@ export default function App() {
   const meshId = view.name === "capture" ? null : view.meshId;
   const onDone = useCallback(() => meshId && setView({ name: "result", meshId }), [meshId]);
   const onError = useCallback((error: string) => setView({ name: "capture", error }), []);
+  const onCancel = useCallback(() => setView({ name: "capture" }), []);
 
   return (
     <div className="app">
@@ -45,7 +46,7 @@ export default function App() {
           }
         />
       )}
-      {view.name === "generating" && <Generating meshId={view.meshId} onDone={onDone} onError={onError} />}
+      {view.name === "generating" && <Generating meshId={view.meshId} onDone={onDone} onError={onError} onCancel={onCancel} />}
       {view.name === "result" && <Result meshId={view.meshId} onRestart={() => setView({ name: "capture" })} />}
     </div>
   );

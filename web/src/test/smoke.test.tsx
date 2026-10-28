@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { inventory, paginate, stepParts } from "../booklet";
 import Booklet from "../components/Booklet";
 import Capture, { SAMPLE_URL } from "../components/Capture";
+import Generating, { SLOW_AFTER_S } from "../components/Generating";
 import StepScrubber from "../components/StepScrubber";
 import { BRICK_H, brickEdges, brickGeometry, buildBrickScene, stepAt, stepOrder } from "../three/bricks";
 import * as THREE from "three";
@@ -271,5 +272,35 @@ describe("booklet", () => {
     expect(screen.getByText("All the bricks you need")).toBeTruthy();
     const btn = screen.getByRole("button", { name: "Print or save as PDF" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
+  });
+});
+
+describe("generating", () => {
+  it("says when a run is unusually slow and cancels it on the server", async () => {
+    vi.useFakeTimers();
+    const id = "b".repeat(64);
+    const calls: { url: string; method?: string }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method });
+      const status = url.endsWith("/cancel") ? "error" : "running";
+      return new Response(JSON.stringify({ mesh_id: id, status, error: null }), { status: 200 });
+    }));
+    const onCancel = vi.fn();
+    render(<Generating meshId={id} onDone={vi.fn()} onError={vi.fn()} onCancel={onCancel} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.queryByText(/taking much longer than usual/)).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SLOW_AFTER_S * 1000);
+    });
+    expect(screen.getByText(/taking much longer than usual/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    });
+    expect(calls).toContainEqual({ url: `/api/meshes/${id}/cancel`, method: "POST" });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 });
