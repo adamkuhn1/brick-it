@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { inventory, paginate, stepParts } from "../booklet";
 import Booklet from "../components/Booklet";
 import Capture, { SAMPLE_URL } from "../components/Capture";
@@ -247,6 +247,53 @@ describe("try a sample", () => {
     expect(((upload!.body as FormData).get("file") as File).name).toBe("chair.glb");
     expect(onUploaded).toHaveBeenCalledWith({ mesh_id: "a".repeat(64), status: "done", error: null });
     vi.unstubAllGlobals();
+  });
+});
+
+describe("camera", () => {
+  function fakeCamera() {
+    const track = { stop: vi.fn() };
+    const stream = { getTracks: () => [track] } as unknown as MediaStream;
+    let resolve!: (s: MediaStream) => void;
+    const getUserMedia = vi.fn(() => new Promise<MediaStream>((r) => (resolve = r)));
+    Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia }, configurable: true });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/health") return new Response(JSON.stringify({ model_available: true, model_reason: "" }));
+      return new Promise<Response>(() => {}); // upload never finishes: we're checking the camera mid-generation
+    }));
+    return { track, stream, resolve: (s = stream) => resolve(s), getUserMedia };
+  }
+
+  beforeEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete (navigator as { mediaDevices?: unknown }).mediaDevices;
+  });
+
+  it("stops a camera stream that arrives after the user cancelled", async () => {
+    const cam = fakeCamera();
+    render(<Capture onUploaded={vi.fn()} />);
+    await act(async () => fireEvent.click(await screen.findByRole("button", { name: "Use camera" })));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => cam.resolve());
+    expect(cam.track.stop).toHaveBeenCalled();
+  });
+
+  it("turns the camera off as soon as the photo is taken", async () => {
+    const cam = fakeCamera();
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(480);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as never);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((cb) => cb(new Blob([new Uint8Array([1])])));
+    render(<Capture onUploaded={vi.fn()} />);
+    await act(async () => fireEvent.click(await screen.findByRole("button", { name: "Use camera" })));
+    await act(async () => cam.resolve());
+    expect(cam.track.stop).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Take photo" })));
+    expect(cam.track.stop).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Take photo" })).toBeNull();
   });
 });
 

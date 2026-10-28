@@ -19,19 +19,41 @@ interface Props {
 
 function Webcam({ onShot, onClose }: { onShot: (f: File) => void; onClose: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
+  const stream = useRef<MediaStream | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // Turn the camera (and its indicator light) off.
+  const stopCamera = () => {
+    stream.current?.getTracks().forEach((t) => t.stop());
+    stream.current = null;
+    if (video.current) video.current.srcObject = null;
+  };
+
   useEffect(() => {
-    let stream: MediaStream | null = null;
+    if (!navigator.mediaDevices) {
+      setErr("This browser can't use the camera here. Upload a photo instead.");
+      return;
+    }
+    // getUserMedia can resolve after we've unmounted (Cancel before allowing access, or
+    // StrictMode's mount/unmount/remount). Stop that late stream instead of leaking it.
+    let cancelled = false;
     navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } })
+      .getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } })
       .then((s) => {
-        stream = s;
+        if (cancelled) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        stream.current = s;
         if (video.current) video.current.srcObject = s;
       })
-      .catch(() => setErr("Camera access was blocked. Allow it in your browser, or upload a photo instead."));
-    if (!navigator.mediaDevices) setErr("This browser can't use the camera here. Upload a photo instead.");
-    return () => stream?.getTracks().forEach((t) => t.stop());
+      .catch(() => {
+        if (!cancelled) setErr("Camera access was blocked. Allow it in your browser, or upload a photo instead.");
+      });
+    return () => {
+      cancelled = true;
+      stopCamera();
+    };
   }, []);
 
   const shoot = () => {
@@ -41,6 +63,8 @@ function Webcam({ onShot, onClose }: { onShot: (f: File) => void; onClose: () =>
     c.width = v.videoWidth;
     c.height = v.videoHeight;
     c.getContext("2d")!.drawImage(v, 0, 0);
+    // We have the frame; release the camera now rather than after the upload.
+    stopCamera();
     c.toBlob((b) => b && onShot(new File([b], "camera.jpg", { type: "image/jpeg" })), "image/jpeg", 0.92);
   };
 
