@@ -17,6 +17,7 @@ import engine
 from engine.export import to_bricklink_xml, to_csv, to_ldraw
 
 from .checks import InputRejected
+from .memory import available_memory
 from .meshes import MeshStore
 from .model import ModelUnavailable, get_model
 
@@ -32,9 +33,10 @@ class BuildRequest(BaseModel):
     size_studs: int = Field(16, ge=MIN_SIZE, le=MAX_SIZE)
 
 
-def create_app(cache_dir: Path | None = None, model_factory=get_model) -> FastAPI:
+def create_app(cache_dir: Path | None = None, model_factory=get_model,
+               free_memory=available_memory) -> FastAPI:
     cache = cache_dir or Path(os.environ.get("LEGO_CACHE", ROOT / ".cache"))
-    store = MeshStore(cache, model_factory)
+    store = MeshStore(cache, model_factory, free_memory)
     builds: OrderedDict[str, engine.Build] = OrderedDict()
     builds_lock = threading.Lock()
     app = FastAPI(title="lego")
@@ -86,6 +88,13 @@ def create_app(cache_dir: Path | None = None, model_factory=get_model) -> FastAP
         except ModelUnavailable as e:
             raise HTTPException(503, str(e))
         job = store.status(mesh_id)
+        return {"mesh_id": mesh_id, "status": job.status, "error": job.error}
+
+    @app.post("/api/meshes/{mesh_id}/cancel")
+    def cancel_mesh(mesh_id: str):
+        job = store.cancel(_mesh_id(mesh_id))
+        if job is None:
+            raise HTTPException(404, "Unknown mesh.")
         return {"mesh_id": mesh_id, "status": job.status, "error": job.error}
 
     @app.get("/api/meshes/{mesh_id}")

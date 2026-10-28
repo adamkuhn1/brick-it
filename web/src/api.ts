@@ -30,6 +30,11 @@ export async function meshStatus(meshId: string): Promise<MeshResponse> {
   return json(await fetch(`/api/meshes/${meshId}`));
 }
 
+/** Stops a photo that is queued or turning into 3D (the server kills the model process). */
+export async function cancelMesh(meshId: string): Promise<MeshResponse> {
+  return json(await fetch(`/api/meshes/${meshId}/cancel`, { method: "POST" }));
+}
+
 export async function createBuild(meshId: string, sizeStuds: number, signal?: AbortSignal): Promise<Build> {
   return json(
     await fetch("/api/builds", {

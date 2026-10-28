@@ -10,13 +10,14 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from server.app import create_app
+from server.memory import GB
 
 FIXTURE = Path(__file__).parents[2] / "engine" / "tests" / "fixtures" / "chair.glb"
 
 
 class FakeModel:
-    def __init__(self, ok=True, flat=False):
-        self.ok, self.flat = ok, flat
+    def __init__(self, ok=True, flat=False, hang=False):
+        self.ok, self.flat, self.hang = ok, flat, hang
 
     def available(self):
         return (True, "") if self.ok else (False, "TripoSR is not installed.")
@@ -25,14 +26,20 @@ class FakeModel:
         from server.model import foreground_pixels
         return foreground_pixels(img)
 
-    def image_to_mesh(self, img):
+    def image_to_mesh(self, img, cancel=None):
+        if self.hang:  # like a run stuck in swap: only a cancel ends it
+            from server.isolated import Stopped
+            assert cancel is not None and cancel.wait(10), "never cancelled"
+            raise Stopped("cancelled")
         if self.flat:
             return trimesh.creation.box(extents=[1, 1, 0.01])
         return trimesh.creation.icosphere(subdivisions=2)
 
 
-def client(tmp_path, **kw):
-    return TestClient(create_app(tmp_path, model_factory=lambda: FakeModel(**kw)))
+def client(tmp_path, free=8 * GB, **kw):
+    free_memory = free if callable(free) else lambda: free
+    return TestClient(create_app(tmp_path, model_factory=lambda: FakeModel(**kw),
+                                 free_memory=free_memory))
 
 
 def photo(size=512, noise=True):
@@ -147,7 +154,10 @@ def test_real_triposr(tmp_path):
     if not c.get("/api/health").json()["model_available"]:
         pytest.skip("TripoSR not installed")
     data = (TRIPOSR_DIR / "examples" / "chair.png").read_bytes()
-    mesh_id = c.post("/api/meshes", files={"file": ("chair.png", data)}).json()["mesh_id"]
+    r = c.post("/api/meshes", files={"file": ("chair.png", data)})
+    if r.status_code == 503 and "low on memory" in r.text:
+        pytest.skip(r.json()["detail"])
+    mesh_id = r.json()["mesh_id"]
     for _ in range(600):
         s = c.get(f"/api/meshes/{mesh_id}").json()
         if s["status"] in ("done", "error"):
@@ -172,3 +182,73 @@ def test_transparent_png_keeps_its_alpha():
     assert has_alpha(img)
     px = foreground_pixels(img)
     assert (px.mean(axis=0) > [80, 140, 190]).all()  # no black background leaking in
+
+
+def test_low_memory_refuses_photo_but_not_glb(tmp_path):
+    c = client(tmp_path, free=int(1.8 * GB))
+    r = c.post("/api/meshes", files={"file": ("p.png", photo())})
+    assert r.status_code == 503
+    assert "low on memory (1.8 GB free" in r.json()["detail"]
+    r = c.post("/api/meshes", files={"file": ("chair.glb", FIXTURE.read_bytes())})
+    assert r.status_code == 200 and r.json()["status"] == "done"
+
+
+def test_memory_checked_again_when_run_starts(tmp_path):
+    readings = iter([8 * GB, int(1.0 * GB)])  # fine at upload, low by the time it runs
+    c = client(tmp_path, free=lambda: next(readings, int(1.0 * GB)))
+    r = c.post("/api/meshes", files={"file": ("p.png", photo())})
+    assert r.status_code == 200
+    s = wait_done(c, r.json()["mesh_id"])
+    assert s["status"] == "error" and "low on memory" in s["error"]
+
+
+def test_unknown_free_memory_does_not_block(tmp_path):
+    c = client(tmp_path, free=None)
+    r = c.post("/api/meshes", files={"file": ("p.png", photo())})
+    assert wait_done(c, r.json()["mesh_id"])["status"] == "done"
+
+
+def test_cancel_running_photo(tmp_path):
+    c = client(tmp_path, hang=True)
+    mesh_id = c.post("/api/meshes", files={"file": ("p.png", photo())}).json()["mesh_id"]
+    for _ in range(100):
+        if c.get(f"/api/meshes/{mesh_id}").json()["status"] == "running":
+            break
+        time.sleep(0.02)
+    r = c.post(f"/api/meshes/{mesh_id}/cancel")
+    assert r.status_code == 200 and r.json() == {"mesh_id": mesh_id, "status": "error",
+                                                "error": "Cancelled."}
+    time.sleep(0.2)  # the run notices and exits; its result must not overwrite the cancel
+    assert c.get(f"/api/meshes/{mesh_id}").json()["error"] == "Cancelled."
+    # The same photo can be tried again after a cancel.
+    again = c.post("/api/meshes", files={"file": ("p.png", photo())}).json()
+    assert again["status"] in ("queued", "running")
+    c.post(f"/api/meshes/{mesh_id}/cancel")
+
+
+def test_cancel_unknown_mesh(tmp_path):
+    assert client(tmp_path).post(f"/api/meshes/{'0' * 64}/cancel").status_code == 404
+    assert client(tmp_path).post("/api/meshes/nope/cancel").status_code == 404
+
+
+def test_cancel_while_queued_then_resubmit_runs_once(tmp_path):
+    from server.meshes import MeshStore
+
+    calls = []
+
+    class Counting(FakeModel):
+        def image_to_mesh(self, img, cancel=None):
+            calls.append(img.size)
+            return super().image_to_mesh(img, cancel)
+
+    store = MeshStore(tmp_path, lambda: Counting(), lambda: 8 * GB)
+    gate = __import__("threading").Event()
+    store.pool.submit(gate.wait)  # keep the single worker busy so the photo stays queued
+    mesh_id = store.submit(photo(), "p.png")
+    assert store.status(mesh_id).status == "queued"
+    store.cancel(mesh_id)
+    assert store.submit(photo(), "p.png") == mesh_id  # resubmit while the old run is queued
+    gate.set()
+    store.pool.shutdown(wait=True)
+    assert store.status(mesh_id).status == "done"
+    assert len(calls) == 1

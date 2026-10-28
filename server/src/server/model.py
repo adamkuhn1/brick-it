@@ -1,8 +1,14 @@
-"""TripoSR wrapper. Heavy imports are lazy so the server runs without the model installed."""
+"""TripoSR wrapper. Heavy imports are lazy so the server runs without the model installed.
+
+Each run happens in a child process (see isolated.py): the server can stop it when it takes
+too long, is cancelled, or the machine runs low on memory, and the ~2 GB model is released
+when the child exits instead of staying resident between photos.
+"""
 
 from __future__ import annotations
 
 import gc
+import io
 import sys
 import threading
 import types
@@ -11,12 +17,23 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from .isolated import run_isolated
+from .memory import GB
+
 ROOT = Path(__file__).resolve().parents[3]
 TRIPOSR_DIR = ROOT / "vendor" / "TripoSR"
 
 # Tuned for an 8 GB M2: low marching-cubes resolution and small render chunks.
 MC_RESOLUTION = 160
 CHUNK_SIZE = 4096
+
+# Memory budget (see memory.py). TripoSR peaks around 2 GB; refuse to start below
+# MIN_FREE_TO_START and stop a run if the system drops below MIN_FREE_RUNNING, well
+# before macOS starts swapping hard enough to freeze.
+MIN_FREE_TO_START = int(2.5 * GB)
+MIN_FREE_RUNNING = int(0.4 * GB)
+MESH_TIMEOUT = 300  # s; a healthy run is ~30 s, a cold first run a minute or two
+FOREGROUND_TIMEOUT = 120
 
 
 class ModelUnavailable(RuntimeError):
@@ -40,7 +57,9 @@ def _install_torchmcubes_shim() -> None:
     sys.modules["torchmcubes"] = mod
 
 
-class TripoSR:
+class _InProcess:
+    """The model itself, loaded in whichever process calls it (the child, in practice)."""
+
     def __init__(self) -> None:
         self._model = None
         self._rembg = None
@@ -123,6 +142,46 @@ class TripoSR:
         # TripoSR output is Z-up; store everything Y-up (glTF convention).
         mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
         return mesh
+
+
+# Child-process entry points: module level so 'spawn' can import them by name.
+_child_model: _InProcess | None = None
+
+
+def _child() -> _InProcess:
+    global _child_model
+    if _child_model is None:
+        _child_model = _InProcess()
+    return _child_model
+
+
+def _child_image_to_mesh(image: Image.Image) -> bytes:
+    return _child().image_to_mesh(image).export(file_type="glb")
+
+
+def _child_foreground(image: Image.Image) -> np.ndarray:
+    return _child().foreground(image)
+
+
+class TripoSR:
+    """Runs each request in a fresh child process (one at a time; MeshStore queues them)."""
+
+    available = staticmethod(_InProcess.available)
+
+    def foreground(self, image: Image.Image) -> np.ndarray:
+        if has_alpha(image) or not self.available()[0]:
+            return foreground_pixels(image)  # no model needed
+        return run_isolated(_child_foreground, (image,), timeout=FOREGROUND_TIMEOUT,
+                            min_free=MIN_FREE_RUNNING)
+
+    def image_to_mesh(self, image: Image.Image, cancel: threading.Event | None = None):
+        """Returns a Y-up trimesh with vertex colors. Raises isolated.Stopped when cancelled,
+        out of time, or low on memory."""
+        import trimesh
+
+        glb = run_isolated(_child_image_to_mesh, (image,), timeout=MESH_TIMEOUT, cancel=cancel,
+                           min_free=MIN_FREE_RUNNING)
+        return trimesh.load(io.BytesIO(glb), file_type="glb", force="mesh")
 
 
 def has_alpha(image: Image.Image) -> bool:

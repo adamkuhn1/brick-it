@@ -31,6 +31,15 @@ To skip the model install, run `./scripts/setup.sh --no-model`. You can still dr
 
 On an 8 GB M2 MacBook Air, TripoSR takes about 30 s per photo on the GPU (MPS) and peaks at roughly 2 GB of memory. The brick engine takes about 0.8 s at 32 studs and about 2.3 s at the 48-stud maximum (see [Performance](#performance)). Results are cached by image hash, so moving the size slider only reruns the engine.
 
+TripoSR runs in a separate process, so it never takes the whole app (or your Mac) down with it. On Apple Silicon the GPU shares system memory, and starting a 2 GB model on a machine that's already full makes macOS swap until everything freezes. So the server:
+
+- won't start a photo unless about 2.5 GB is free (macOS `vm_stat` or Linux `/proc/meminfo`), and says so instead;
+- stops a run if free memory drops below 0.4 GB, or after 5 minutes;
+- lets you cancel from the generating screen, which kills the process and frees its memory at once;
+- unloads the model after every photo, which adds a few seconds per photo while the weights reload.
+
+Uploading a `.glb`/`.obj` or using **Try a sample** skips the model, so neither needs the memory headroom.
+
 ## Tests
 
 ```bash
